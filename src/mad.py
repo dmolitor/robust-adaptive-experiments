@@ -46,12 +46,21 @@ class MADBase:
             self._n.append([0])
             self._stat_sig_counter.append(0)
     
-    def fit(self, early_stopping: bool = True, cs_precision: float = 0.1) -> None:
+    def fit(
+        self,
+        early_stopping: bool = True,
+        cs_precision: float = 0.1,
+        verbose: bool = True
+    ) -> None:
         """
         Fit the full MAD algorithm for the full time horizon or until there are
         no treatment arms remaining
         """
-        for _ in tqdm(range(self._t_star), total = self._t_star):
+        if verbose:
+            iter_range = tqdm(range(self._t_star), total = self._t_star)
+        else:
+            iter_range = range(self._t_star)
+        for _ in iter_range:
             self.pull(early_stopping=early_stopping, cs_precision=cs_precision)
             # If all treatment arms have been eliminated, end the algorithm
             if early_stopping and all(
@@ -59,7 +68,8 @@ class MADBase:
                 for key, value in self._eliminated.items()
                 if key != self._bandit.control()
             ):
-                print("Stopping early!")
+                if verbose: 
+                    print("Stopping early!")
                 break
     
     def plot(self) -> pn.ggplot:
