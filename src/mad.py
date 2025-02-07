@@ -3,34 +3,23 @@ import numpy as np
 import pandas as pd
 import plotnine as pn
 from tqdm import tqdm
-from typing import Callable, Dict, List
+from typing import Callable
 from utils import (
     check_shrinkage_rate,
     cs_radius,
     ite,
     last,
-    var
+    var,
+    weighted_probs
 )
 
 generator = np.random.default_rng(seed=123)
 
-class MAD:
+class MADBase:
     """
-    A class implementing Liang and Bojinov's Mixture-Adaptive Design (MAD)
-    
-    Parameters:
-    -----------
-    alpha : The size of the statistical test (testing for non-zero treatment effects)
-    bandit: An object of class Bandit. This object must implement several crucial
-        methods/attributes. For more details on how to create a custom Bandit
-        object, see the documentation of the Bandit class.
-    delta : A function that generates the real-valued sequence delta_t in Liang
-        and Bojinov (Definition 4 - Mixture Adaptive Design). This sequence
-        should converge to 0 slower than 1/t^(1/4) where t denotes the time
-        frame in {0, ... n}. This function should intake an integer (t) and
-        output a float (the corresponding delta_t)
-    t_star: The time-step at which we want to optimize the CSs to be tightest.
-        E.g. Liang and Bojinov set this to the max horizon of their experiment
+    No need to read through the code for this class!!! It just adds some
+    methods for plotting the results and spitting out a nicely formatted
+    summary. The meat of the algorithm is in the `MAD` class below.
     """
     def __init__(self, bandit: Bandit, alpha: float, delta: Callable[[int], float], t_star: int):
         self._alpha = alpha
@@ -40,6 +29,8 @@ class MAD:
         self._cs_width = []
         self._cs_width_benchmark = []
         self._delta = delta
+        self._eliminated = {k: False for k in range(bandit.k())}
+        self._is_stat_sig = {k: False for k in range(bandit.k())}
         self._ite = []
         self._ite_var = []
         self._n = []
@@ -55,15 +46,19 @@ class MAD:
             self._n.append([0])
             self._stat_sig_counter.append(0)
     
-    def fit(self, eliminate_arms: bool = True, cs_precision: float = 0.25) -> None:
+    def fit(self, early_stopping: bool = True, cs_precision: float = 0.1) -> None:
         """
         Fit the full MAD algorithm for the full time horizon or until there are
         no treatment arms remaining
         """
         for _ in tqdm(range(self._t_star), total = self._t_star):
-            self.pull(eliminate_arms=eliminate_arms, cs_precision=cs_precision)
+            self.pull(early_stopping=early_stopping, cs_precision=cs_precision)
             # If all treatment arms have been eliminated, end the algorithm
-            if self._bandit.k() <= 1:
+            if early_stopping and all(
+                value
+                for key, value in self._eliminated.items()
+                if key != self._bandit.control()
+            ):
                 print("Stopping early!")
                 break
     
@@ -119,7 +114,9 @@ class MAD:
         return plt
     
     def plot_sample(self) -> pn.ggplot:
-        """Plot sample assignment to arms across time"""
+        """
+        Plot sample assignment to arms across time
+        """
         sample_assignment = pd.concat([
             pd.DataFrame({
                 "arm": [arm]*len(self._n[arm]),
@@ -145,84 +142,6 @@ class MAD:
             + pn.labs(y="N", color="Arm", fill="Arm")
         )
         return plt
-
-    def pull(self, eliminate_arms: bool = True, cs_precision: float = 0.25) -> None:
-        """
-        Perform one full iteration of the MAD algorithm
-        """
-        # Bandit parameters
-        control = self._bandit.control()
-        k = self._bandit.k()
-        t = self._bandit.t()
-        d_t = self._delta(t)
-        check_shrinkage_rate(t, d_t)
-        # Use the MAD algorithm to select the treatment arm
-        arm_probs = self._bandit.probabilities()
-        probs = [d_t/k + (1 - d_t)*p for p in arm_probs.values()]
-        selected_index = generator.multinomial(1, pvals=probs).argmax()
-        selected_arm = list(arm_probs.keys())[selected_index]
-        # Update the counts of selected arms
-        for arm in range(len(self._ate)):
-            if arm == selected_arm:
-                self._n[arm].append((last(self._n[arm]) + 1))
-            else:
-                self._n[arm].append((last(self._n[arm])))
-        propensity = probs[selected_index]
-        reward = self._bandit.reward(selected_arm)
-        # Calculate the individual treatment effect estimate and variance
-        treat_effect = ite(reward, int(selected_arm != control), propensity)
-        treat_effect_var = var(reward, propensity)
-        self._ite[selected_arm].append(treat_effect)
-        self._ite_var[selected_arm].append(treat_effect_var)
-        # For each arm calculate the ATE and corresponding Confidence Sequence (CS)
-        for arm in arm_probs.keys():
-            if arm == control:
-                ites = self._ite[control]
-                vars = self._ite_var[control]
-            else:
-                # Get the ITE and variance estimates for the current arm and control arm
-                ites = self._ite[control] + self._ite[arm]
-                vars = self._ite_var[control] + self._ite_var[arm]
-            assert len(ites) == len(vars), "Mismatch in dimensions of ITEs and Variances"
-            if len(self._ite[arm]) < 1 or len(self._ite[control]) < 1:
-                avg_treat_effect = np.nan
-                conf_seq_radius = np.inf
-            else:
-                # Calculating np.mean(ites) effectively ignores any time periods (i)
-                # where neither the current arm nor the control arm were selected.
-                # This is WRONG! The unbiased ATE estimator includes the ITE for each
-                # of those steps (in which case the ITE is just 0). This is why the
-                # denominator is the full number of time steps, t.
-                avg_treat_effect = np.sum(ites).astype(float)/t
-                # The Confidence Sequence calculation is similar. Like the ATE estimator,
-                # the estimated variance for any (i) where neither the current arm
-                # nor the control arm were selected is just 0. The CS calculation simply
-                # sums the estimated variances which is why we only need the non-zero
-                # variance estimates.
-                conf_seq_radius = cs_radius(vars, t, self._t_star, self._alpha)
-            self._ate[arm].append(avg_treat_effect)
-            self._cs_radius[arm].append(conf_seq_radius)
-            self._cs_width[arm] = 2.0*conf_seq_radius
-            if eliminate_arms and arm != control:
-                # If the arm's CS excludes 0, drop the arm from the experiment
-                if np.isnan(avg_treat_effect) or np.isinf(conf_seq_radius):
-                    continue
-                stat_sig = np.logical_or(
-                    0 <= avg_treat_effect - conf_seq_radius,
-                    0 >= avg_treat_effect + conf_seq_radius
-                )
-                if stat_sig:
-                    # If the CS is statistically significant for the first time
-                    # we will attempt to increase precision by decreasing the
-                    # interval width by X% relative to it's current width
-                    self._stat_sig_counter[arm] += 1
-                    if self._stat_sig_counter[arm] == 1:
-                        self._cs_width_benchmark[arm] = self._cs_width[arm]
-                    # Now, eliminate the arm iff it is <= 90% of it's width when
-                    # initially marked as statistically significant
-                    threshold = (1-cs_precision)*self._cs_width_benchmark[arm]
-                    if self._cs_width[arm] <= threshold:
-                        self._bandit.eliminate_arm(arm)
     
     def summary(self, estimates: bool = False) -> None | pd.DataFrame:
         """
@@ -246,189 +165,273 @@ class MAD:
             return pd.DataFrame(results)
 
 
-class MADMolitor(MAD):
-    def __init__(self, bandit: Bandit, alpha: float, delta: Callable[[int], float], t_star: int):
+class MAD(MADBase):
+    """
+    A class implementing Liang and Bojinov's Mixture-Adaptive Design (MAD).
+    
+    Parameters
+    ----------
+    bandit : Bandit 
+        This object must implement several crucial
+        methods/attributes. For more details on how to create a custom Bandit
+        object, see the documentation of the Bandit class.
+    alpha : float
+        The size of the statistical test (testing for non-zero treatment effects)
+    delta : Callable[[int], float]
+        A function that generates the real-valued sequence delta_t in Liang
+        and Bojinov (Definition 4 - Mixture Adaptive Design). This sequence
+        should converge to 0 slower than 1/t^(1/4) where t denotes the time
+        frame in {0, ... n}. This function should intake an integer (t) and
+        output a float (the corresponding delta_t)
+    t_star : int
+        The time-step at which we want to optimize the CSs to be tightest.
+        E.g. Liang and Bojinov set this to the max horizon of their experiment
+    """
+    def __init__(
+        self,
+        bandit: Bandit,
+        alpha: float,
+        delta: Callable[[int], float],
+        t_star: int
+    ):
         super().__init__(
             bandit=bandit,
             alpha=alpha,
             delta=delta,
             t_star=t_star
         )
-        self._eliminated = {k: False for k in range(bandit.k())}
-        self._is_stat_sig = {k: False for k in range(bandit.k())}
-        self._k = bandit.k()
     
-    def fit(self, eliminate_arms: bool = True, cs_precision: float = 0.25, stop_early: bool = True, **kwargs) -> None:
+    def pull(self, early_stopping: bool = True, cs_precision: float = 0.1) -> None:
         """
-        Fit the full MAD algorithm for the full time horizon or until there are
-        no treatment arms remaining
-        """
-        for _ in tqdm(range(self._t_star), total = self._t_star):
-            self.pull(eliminate_arms=eliminate_arms, cs_precision=cs_precision, **kwargs)
-            # If all treatment arms have been eliminated, end the algorithm
-            if stop_early and all(
-                value
-                for key, value in self._is_stat_sig.items()
-                if key != self._bandit.control()
-            ):
-                print("Stopping early!")
-                break
+        Perform one full iteration of the MAD algorithm.
 
-    def pull(self, eliminate_arms: bool = True, cs_precision: float = 0.25, **kwargs) -> None:
+        Parameters
+        ----------
+        early_stopping : bool
+            Whether or not to stop the experiment early when all the arms have
+            statistically significant ATEs.
+        cs_precision: float
+            This parameter controls how precise we want to make our Confidence
+            Sequences (CSs). If `cs_precision = 0` then the experiment will stop
+            immediately as soon as all arms are statistically significant.
+            If `cs_precision = 0.2` then the experiment will run until all
+            CSs are at least 20% tighter (shorter) than they
+            were when they became statistically significant. If
+            `cs_precision = 0.4` the experiment will run until all CSs are at
+            least 40% tighter, and so on.
         """
-        Perform one full iteration of the MAD algorithm
-        """
-        # Bandit parameters
+        # The index of the control arm of the bandit, typically 0
         control = self._bandit.control()
-        k = self._k
+        # The number of bandit arms
+        k = self._bandit.k()
+        # The CURRENT time step of the bandit
         t = self._bandit.t()
+        # The random exploration mixing rate at time step t; For more details
+        # on this mixing sequence delta_t look at Liang and Bojinov on Page 13
+        # directly above Theorem 1 and in the first new paragraph on Page 11.
         d_t = self._delta(t)
+        # This function just ensures that the mixing rate d_t follows the
+        # requirements stated in the paper. Can't shrink faster than 1/(t^(1/4)).
         check_shrinkage_rate(t, d_t)
-        # Use the MAD algorithm to select the treatment arm
+        # Get the arm assignment probabilities from the underlying bandit algo
         arm_probs = self._bandit.probabilities()
-        # Add any missing arms with probability 0.
-        # This will ensure that, once arms are statistically significant
-        # their treatment assignment probability will decay to 0.
-        for arm in range(self._k):
-            if arm not in arm_probs:
-                arm_probs[arm] = 0.0
-        arm_probs = {k: arm_probs[k] for k in sorted(arm_probs)}
+        # For each arm, calculate the MAD probabilities based on the bandit probs.
+        # This equation is Definition 4 in the paper and it's multi-arm corollary
+        # is defined in the third paragraph in Appendix C (Page 34). The
+        # multi-class definition is what I'm using here (just a generalization
+        # of the 2-class case).
         probs = [d_t/k + (1 - d_t)*p for p in arm_probs.values()]
+        # Then select the arm as a draw from multinomial with these probabilities
         selected_index = generator.multinomial(1, pvals=probs).argmax()
         selected_arm = list(arm_probs.keys())[selected_index]
-        # Update the counts of selected arms
+        # This is not essential for the MAD algorithm. I'm simply tracking how
+        # much sample has been assigned to each arm.
         for arm in range(len(self._ate)):
             if arm == selected_arm:
                 self._n[arm].append((last(self._n[arm]) + 1))
             else:
                 self._n[arm].append((last(self._n[arm])))
-        # Calculate the individual treatment effect estimate and variance
+        # Propensity score; obviously just the probability of the selected arm
         propensity = probs[selected_index]
+        # True reward resulting from the selected arm
         reward = self._bandit.reward(selected_arm)
+        # Calculate the individual treatment effect estimate (ITE). This is effectively
+        # just (reward / propensity). See `utils.ite()` for exactly what it's
+        # doing.
         treat_effect = ite(reward, int(selected_arm != control), propensity)
+        # Calculate the plug-in variance estimate of the ITE. See `utils.var()`.
         treat_effect_var = var(reward, propensity)
+        # Record the ITE and it's variance for calculating the ATE later
         self._ite[selected_arm].append(treat_effect)
         self._ite_var[selected_arm].append(treat_effect_var)
-        # For each arm calculate the ATE and corresponding Confidence Sequence (CS)
+        # Now, for each arm, calculate its ATE and corresponding Confidence Sequence (CS)
+        # value for the current time step t.
         for arm in arm_probs.keys():
+            # Don't calculate the ATE for the control arm
             if arm == control:
-                ites = self._ite[control]
-                vars = self._ite_var[control]
+                continue
             else:
-                # Get the ITE and variance estimates for the current arm and control arm
+                # Get all the ITEs and their variance estimates for the current arm
+                # as well as the control arm
                 ites = self._ite[control] + self._ite[arm]
                 vars = self._ite_var[control] + self._ite_var[arm]
-            assert len(ites) == len(vars), "Mismatch in dimensions of ITEs and Variances"
+                assert len(ites) == len(vars), "Mismatch in dimensions of ITEs and Variances"
+            # If there aren't enough ITEs to calculate the ATE just mark the ATE
+            # as missing (np.nan) and mark the CS as infinite
             if len(self._ite[arm]) < 1 or len(self._ite[control]) < 1:
                 avg_treat_effect = np.nan
                 conf_seq_radius = np.inf
             else:
-                # Calculating np.mean(ites) effectively ignores any time periods (i)
+                # Calculate the ATE from the ITEs:
+                # Calculating np.mean(ites) effectively ignores any time periods
                 # where neither the current arm nor the control arm were selected.
-                # This is WRONG! The unbiased ATE estimator includes the ITE for each
-                # of those steps (in which case the ITE is just 0). This is why the
-                # denominator is the full number of time steps, t.
+                # This is WRONG! For each time period (t) where neither the current
+                # arm nor the control were selected, the unbiased ATE estimator
+                # sets ITE_t = 0. This is why the denominator is the full number
+                # of time steps, t.
                 avg_treat_effect = np.sum(ites).astype(float)/t
                 # The Confidence Sequence calculation is similar. Like the ATE estimator,
-                # the estimated variance for any (i) where neither the current arm
+                # the estimated variance for any (t) where neither the current arm
                 # nor the control arm were selected is just 0. The CS calculation simply
                 # sums the estimated variances which is why we only need the non-zero
-                # variance estimates.
+                # variance estimates. Check out `utils.cs_radius()` for calc details.
                 conf_seq_radius = cs_radius(vars, t, self._t_star, self._alpha)
+            # Record the ATE and CS for the current arm
             self._ate[arm].append(avg_treat_effect)
             self._cs_radius[arm].append(conf_seq_radius)
             self._cs_width[arm] = 2.0*conf_seq_radius
-            if eliminate_arms and arm != control:
-                # If the arm's CS excludes 0, drop the arm from the experiment
+            # This isn't really the MAD design. This just controls early stopping
+            # once all the arms are eliminated (aka all arms have significant ATEs).
+            if early_stopping and arm != control:
+                # If the arm's ATE is undefined (insufficient sample size) skip
                 if np.isnan(avg_treat_effect) or np.isinf(conf_seq_radius):
                     continue
+                # Is the arm statistically significant?
                 stat_sig = np.logical_or(
                     0 <= avg_treat_effect - conf_seq_radius,
                     0 >= avg_treat_effect + conf_seq_radius
                 )
                 if stat_sig:
+                    # Mark arm as statistically significant
                     self._is_stat_sig[arm] = True
                     # If the CS is statistically significant for the first time
                     # we will attempt to increase precision by decreasing the
-                    # interval width by X% relative to it's current width
+                    # interval width by X% relative to its current width
                     self._stat_sig_counter[arm] += 1
                     if self._stat_sig_counter[arm] == 1:
                         self._cs_width_benchmark[arm] = self._cs_width[arm]
-                    # Now, eliminate the arm iff it is <= x% of it's width when
-                    # initially marked as statistically significant and if it
-                    # has not already been eliminated
+                    # Now, eliminate the arm iff it is <= (1-X)% of it's width when
+                    # initially marked as statistically significant
                     threshold = (1-cs_precision)*self._cs_width_benchmark[arm]
-                    if self._cs_width[arm] <= threshold and not self._eliminated[arm]:
-                        self._bandit.eliminate_arm(arm)
+                    if self._cs_width[arm] <= threshold:
                         self._eliminated[arm] = True
                 else:
+                    # Otherwise mark it as NOT significant
                     self._is_stat_sig[arm] = False
-                    # If the arm has been stat. sig. but is not any more,
-                    # reactivate the arm
+                    # If the arm has been significant but is not any more,
+                    # un-eliminate the arm
                     if self._eliminated[arm]:
-                        self._bandit.reactivate_arm(arm)
                         self._eliminated[arm] = False
+        return None
 
-class MADMolitorWeighted(MAD):
-    def __init__(self, bandit: Bandit, alpha: float, delta: Callable[[int], float], t_star: int):
+class MADModified(MADBase):
+    """
+    This class implements my minor (but important) changes to the MAD design.
+    All the code in the `pull()` method is identical to that in the MAD class
+    above. I've only documented the chunks where the code is different, which
+    is where I implement my modifications to the MAD algorithm.
+    
+    Parameters
+    ----------
+    bandit : Bandit 
+        This object must implement several crucial
+        methods/attributes. For more details on how to create a custom Bandit
+        object, see the documentation of the Bandit class.
+    alpha : float
+        The size of the statistical test (testing for non-zero treatment effects)
+    delta : Callable[[int], float]
+        A time-decreasing function that generates the real-valued sequence
+        delta_t in Liang and Bojinov (Definition 4 - Mixture Adaptive Design).
+        This sequence should converge to 0 slower than 1/t^(1/4) where t denotes
+        the time frame in {0, ... n}. This function should intake an integer (t)
+        and output a float (the corresponding delta_t).
+    t_star : int
+        The time-step at which we want to optimize the CSs to be tightest.
+        E.g. Liang and Bojinov set this to the max horizon of their experiment
+    decay : Callable[[int], float]
+        `decay()` should intake the current time step t and output a value
+        in [0, 1] where 1 represents no decay and 0 represents complete decay.
+        This function is similar to the `delta()` argument above. However,
+        `delta()` determines the amount of random exploration in the MAD
+        algorithm at time t. In contrast, `decay()` is a time-decreasing
+        function that determines how quickly the bandit assignment
+        probabilities for arm k decay to 0 once arm k's ATE (ATE_k) is
+        statistically significant. Setting a constant `decay = lambda _: 1` makes
+        this method identical to the vanilla MAD design. In contrast,
+        `decay = lambda _: 0` is the same as setting the bandit probabilities
+        for arm k to 0 as soon as it has a significant ATE.
+    
+    Attributes
+    ----------
+    _weights : Dict[int, float]
+        These weights are calculated by `decay()`. Each arm has a weight. When
+        an arm has a weight of 1, its bandit assignment probabilities are not
+        adjusted. Once an arm is statistically significant, its weight begins
+        to decay to 0, and so does its bandit assignment probabilities. As an
+        arm's weight decays to 0, it "shifts" its probability onto currently
+        under-powered arms. This iterative procedure continues to focus more
+        sample on under-powered arms until either all arms have significant ATEs
+        or the experiment has ended.
+    """
+    def __init__(
+        self,
+        bandit: Bandit,
+        alpha: float,
+        delta: Callable[[int], float],
+        t_star: int,
+        decay: Callable[[int], float] = lambda x: 1/np.sqrt(x)
+    ):
         super().__init__(
             bandit=bandit,
             alpha=alpha,
             delta=delta,
             t_star=t_star
         )
-        self._eliminated = {k: False for k in range(bandit.k())}
+        self._decay = decay
+        self._eliminated_t = {k: None for k in range(bandit.k())}
         self._is_stat_sig = {k: False for k in range(bandit.k())}
-        self._k = bandit.k()
         self._weights = {k: 1. for k in range(bandit.k())}
-    
-    def fit(self, eliminate_arms: bool = True, cs_precision: float = 0.25, stop_early: bool = True, **kwargs) -> None:
-        """
-        Fit the full MAD algorithm for the full time horizon or until there are
-        no treatment arms remaining
-        """
-        for _ in tqdm(range(self._t_star), total = self._t_star):
-            self.pull(eliminate_arms=eliminate_arms, cs_precision=cs_precision, **kwargs)
-            # If all treatment arms have been eliminated, end the algorithm
-            if stop_early and all(
-                value
-                for key, value in self._is_stat_sig.items()
-                if key != self._bandit.control()
-            ):
-                print("Stopping early!")
-                break
 
-    def pull(self, eliminate_arms: bool = True, cs_precision: float = 0.25, **kwargs) -> None:
+    def pull(self, early_stopping: bool = True, cs_precision: float = 0.1) -> None:
         """
-        Perform one full iteration of the MAD algorithm
+        Perform one full iteration of the modified MAD algorithm
         """
-        # Bandit parameters
         control = self._bandit.control()
-        k = self._k
+        k = self._bandit.k()
         t = self._bandit.t()
         d_t = self._delta(t)
         check_shrinkage_rate(t, d_t)
-        # Use the MAD algorithm to select the treatment arm
         arm_probs = self._bandit.probabilities()
-        # Update the bandit probabilities
-        arm_probs = {k: arm_probs[k] for k in sorted(arm_probs)}
+
+        # Re-weight the bandit probabilities according to each arm's assigned
+        # weights. Take a look at `utils.weighted_probs()`; it has a very
+        # detailed explanation of how the re-weighting works.
+        arm_probs = weighted_probs(arm_probs, self._weights)
+
         probs = [d_t/k + (1 - d_t)*p for p in arm_probs.values()]
         selected_index = generator.multinomial(1, pvals=probs).argmax()
         selected_arm = list(arm_probs.keys())[selected_index]
-        # Update the counts of selected arms
         for arm in range(len(self._ate)):
             if arm == selected_arm:
                 self._n[arm].append((last(self._n[arm]) + 1))
             else:
                 self._n[arm].append((last(self._n[arm])))
-        # Calculate the individual treatment effect estimate and variance
         propensity = probs[selected_index]
         reward = self._bandit.reward(selected_arm)
         treat_effect = ite(reward, int(selected_arm != control), propensity)
         treat_effect_var = var(reward, propensity)
         self._ite[selected_arm].append(treat_effect)
         self._ite_var[selected_arm].append(treat_effect_var)
-        # For each arm calculate the ATE and corresponding Confidence Sequence (CS)
         for arm in arm_probs.keys():
             if arm == control:
                 ites = self._ite[control]
@@ -437,28 +440,17 @@ class MADMolitorWeighted(MAD):
                 # Get the ITE and variance estimates for the current arm and control arm
                 ites = self._ite[control] + self._ite[arm]
                 vars = self._ite_var[control] + self._ite_var[arm]
-            assert len(ites) == len(vars), "Mismatch in dimensions of ITEs and Variances"
+                assert len(ites) == len(vars), "Mismatch in dimensions of ITEs and Variances"
             if len(self._ite[arm]) < 1 or len(self._ite[control]) < 1:
                 avg_treat_effect = np.nan
                 conf_seq_radius = np.inf
             else:
-                # Calculating np.mean(ites) effectively ignores any time periods (i)
-                # where neither the current arm nor the control arm were selected.
-                # This is WRONG! The unbiased ATE estimator includes the ITE for each
-                # of those steps (in which case the ITE is just 0). This is why the
-                # denominator is the full number of time steps, t.
                 avg_treat_effect = np.sum(ites).astype(float)/t
-                # The Confidence Sequence calculation is similar. Like the ATE estimator,
-                # the estimated variance for any (i) where neither the current arm
-                # nor the control arm were selected is just 0. The CS calculation simply
-                # sums the estimated variances which is why we only need the non-zero
-                # variance estimates.
                 conf_seq_radius = cs_radius(vars, t, self._t_star, self._alpha)
             self._ate[arm].append(avg_treat_effect)
             self._cs_radius[arm].append(conf_seq_radius)
             self._cs_width[arm] = 2.0*conf_seq_radius
-            if eliminate_arms and arm != control:
-                # If the arm's CS excludes 0, drop the arm from the experiment
+            if early_stopping and arm != control:
                 if np.isnan(avg_treat_effect) or np.isinf(conf_seq_radius):
                     continue
                 stat_sig = np.logical_or(
@@ -467,23 +459,34 @@ class MADMolitorWeighted(MAD):
                 )
                 if stat_sig:
                     self._is_stat_sig[arm] = True
-                    # If the CS is statistically significant for the first time
-                    # we will attempt to increase precision by decreasing the
-                    # interval width by X% relative to it's current width
                     self._stat_sig_counter[arm] += 1
                     if self._stat_sig_counter[arm] == 1:
                         self._cs_width_benchmark[arm] = self._cs_width[arm]
-                    # Now, eliminate the arm iff it is <= x% of it's width when
-                    # initially marked as statistically significant and if it
-                    # has not already been eliminated
                     threshold = (1-cs_precision)*self._cs_width_benchmark[arm]
                     if self._cs_width[arm] <= threshold and not self._eliminated[arm]:
-                        self._bandit.eliminate_arm(arm)
                         self._eliminated[arm] = True
+
+                        # We need to know for HOW LONG has the arm been eliminated.
+                        # The longer the arm is eliminated (statistically significant)
+                        # the closer its corresponding weight gets to 0
+                        self._eliminated_t[arm] = t
+
                 else:
                     self._is_stat_sig[arm] = False
-                    # If the arm has been stat. sig. but is not any more,
-                    # reactivate the arm
                     if self._eliminated[arm]:
-                        self._bandit.reactivate_arm(arm)
                         self._eliminated[arm] = False
+                        self._eliminated_t[arm] = None
+                
+                # Now, update the arm's assigned weight. If the arm has been
+                # eliminated this weight will decay to 0. Every time the arm
+                # goes from stat. sig. to non-stat. sig., this weight resets
+                # to 1 (the default value for non-stat. sig. arms) and restarts
+                # its decay path to 0.
+                if not self._eliminated[arm]:
+                    self._weights[arm] = 1.
+                else:
+                    self._weights[arm] = np.max([
+                        self._decay(t + 1 - self._eliminated_t[arm]),
+                        1e-10
+                    ]).astype(float)
+        return None   
