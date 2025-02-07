@@ -24,7 +24,7 @@ design. We will simulate a experiment with a control arm and a treatment
 arm. The outcomes from the control arm are sampled
 ~Bernoulli($\theta=0.5$) and the treatment arm are sampled
 ~Bernoulli($\theta=0.6$) for an ATE = $0.1$. The bandit algorithm used
-here is Thompson Sampling and the experiment will stop as soon as a
+here is Thompson Sampling (TS) and the experiment will stop as soon as a
 statistically significant ATE has been detected.
 
 ``` python
@@ -64,14 +64,14 @@ time.
 ```
 
 <img src="README_files/figure-commonmark/cell-4-output-1.png"
-width="1000" height="750" />
+width="1000" height="500" />
 
 ### Improving precision
 
 We can also improve precision by not stopping the experiment
 immediately. Instead, continue running the experiment until the width of
 the CS has decreased sufficiently. For example we can tweak our simple
-experiment from above to first improve the width of our CS by 50% and
+experiment from above to first improve the width of our CS by 25% and
 then stop the experiment.
 
 ``` python
@@ -81,7 +81,7 @@ exp_simple = MAD(
     delta=lambda x: 1./(x**0.24),
     t_star=int(30e3)
 )
-exp_simple.fit(cs_precision=0.5, verbose=False)
+exp_simple.fit(cs_precision=0.25, verbose=False)
 
 (
     exp_simple.plot()
@@ -96,8 +96,25 @@ exp_simple.fit(cs_precision=0.5, verbose=False)
 ```
 
 <img src="README_files/figure-commonmark/cell-5-output-1.png"
-width="1000" height="750" />
+width="1000" height="500" />
 
 This demonstrates that, due to the anytime-valid CSs of the MAD design,
 the user can easily determine the tradeoff between sample size
 efficiency and the precision of the ATE estimate(s).
+
+### Bandit benefits
+
+We also are getting the benefits of the underlying bandit algorithm! For
+example, we can plot the sample assignment of the algorithm:
+
+``` python
+exp_simple.plot_sample()
+```
+
+<img src="README_files/figure-commonmark/cell-6-output-1.png"
+width="1000" height="500" />
+
+We see that the underlying TS algorithm assigns the majority of the
+sample to the optimal arm (Arm 1 is the treatment). This demonstrates
+how we can both get valid inference on the ATE and the reward
+maximization of the bandit algorithm.
