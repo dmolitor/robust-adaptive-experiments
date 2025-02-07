@@ -21,11 +21,11 @@ Confidence Sequences (CS).
 
 The following simple example demonstrates the usefulness of the MAD
 design. We will simulate a experiment with a control arm and a treatment
-arm. The outcomes from the control arm are sampled
-~Bernoulli($\theta=0.5$) and the treatment arm are sampled
-~Bernoulli($\theta=0.6$) for an ATE = $0.1$. The bandit algorithm used
-here is Thompson Sampling (TS) and the experiment will stop as soon as a
-statistically significant ATE has been detected.
+arm. The outcomes from the control arm are sampled ~Bernoulli($\theta$ =
+0.5) and the treatment arm are sampled ~Bernoulli($\theta$ = 0.6) for an
+ATE = 0.1. The bandit algorithm used here is Thompson Sampling (TS) and
+the experiment will stop as soon as a statistically significant ATE has
+been detected.
 
 ``` python
 generator = np.random.default_rng(seed=123)
@@ -33,7 +33,7 @@ generator = np.random.default_rng(seed=123)
 def reward_fn(arm: int) -> float:
     values = {
         0: generator.binomial(1, 0.5),
-        1: generator.binomial(1, 0.6)
+        1: generator.binomial(1, 0.6)  # ATE = 0.1
     }
     return values[arm]
 
@@ -64,7 +64,7 @@ time.
 ```
 
 <img src="README_files/figure-commonmark/cell-4-output-1.png"
-width="1000" height="500" />
+width="750" height="300" />
 
 ### Improving precision
 
@@ -96,7 +96,7 @@ exp_simple.fit(cs_precision=0.25, verbose=False)
 ```
 
 <img src="README_files/figure-commonmark/cell-5-output-1.png"
-width="1000" height="500" />
+width="750" height="300" />
 
 This demonstrates that, due to the anytime-valid CSs of the MAD design,
 the user can easily determine the tradeoff between sample size
@@ -112,9 +112,85 @@ exp_simple.plot_sample()
 ```
 
 <img src="README_files/figure-commonmark/cell-6-output-1.png"
-width="1000" height="500" />
+width="750" height="300" />
 
 We see that the underlying TS algorithm assigns the majority of the
 sample to the optimal arm (Arm 1 is the treatment). This demonstrates
 how we can both get valid inference on the ATE and the reward
 maximization of the bandit algorithm.
+
+### Limitations
+
+Suppose that we are running an adaptive experiment with multiple
+treatment arms. A common problem researchers may face is that they are
+**under-powered** to detect non-zero ATEs in the sub-optimal arms. This
+results from the bandit algorithm focusing all/most of the sample
+assignment to the optimal arm(s) and mostly ignoring the others. We will
+demonstrate this with a slightly more complex example. We will simulate
+a experiment with a control arm and four treatment arms. The ATEs of the
+four arms will be 0.1, 0.12, 0.3, and 0.32 respectively. We will run
+this experiment for a fixed sample of 20,000. We should expect that the
+bandit algorithm will focus the bulk of the sample on treatment arms 3
+and 4 and we may be under-powered in arms 1 and 2.
+
+``` python
+def reward_fn(arm: int) -> float:
+    values = {
+        0: generator.binomial(1, 0.5),  # Control arm
+        1: generator.binomial(1, 0.6),  # ATE = 0.1
+        2: generator.binomial(1, 0.62), # ATE = 0.12
+        3: generator.binomial(1, 0.8),  # ATE = 0.3
+        4: generator.binomial(1, 0.82)  # ATE = 0.32
+    }
+    return values[arm]
+
+exp_simple = MAD(
+    bandit=TSBernoulli(k=5, control=0, reward=reward_fn),
+    alpha=0.05,
+    delta=lambda x: 1./(x**0.24),
+    t_star=int(20e3)
+)
+exp_simple.fit(early_stopping=False, verbose=False)
+
+(
+    exp_simple.plot()
+    + pn.coord_cartesian(ylim=(-.5, 1.0))
+    + pn.geom_hline(
+        mapping=pn.aes(yintercept="ate", color="factor(arm)"),
+        data=pd.DataFrame({
+            "arm": list(range(1, 5)), "ate": [0.1, 0.12, 0.3, 0.32]
+        }),
+        linetype="dotted"
+    )
+    + pn.theme(strip_text=pn.element_blank()) 
+)
+```
+
+<img src="README_files/figure-commonmark/cell-7-output-1.png"
+width="750" height="300" />
+
+As expected, we see that we are well-powered and fairly precise in our
+ATE estimates for arms 3 and 4 but are under-powered for both arms 1 and
+2. We can confirm that indeed TS focuses the vast majority of the sample
+on arms 3 and 4.
+
+``` python
+sample_sizes = pd.DataFrame({
+    "arm": list(range(5)),
+    "n": [last(n) for n in exp_simple._n]
+})
+
+(
+    pn.ggplot(sample_sizes, pn.aes(x="factor(arm)", y="n"))
+    + pn.geom_bar(
+        stat="identity",
+        position=pn.position_dodge(width=0.75),
+        width=0.7
+    )
+    + pn.theme_538()
+    + pn.labs(x="Arm", y="N")
+)
+```
+
+<img src="README_files/figure-commonmark/cell-8-output-1.png"
+width="750" height="300" />

@@ -1,5 +1,7 @@
 jupyter
+jupyter-cache
 numpy
 pandas
+papermill
 plotnine
 tqdm
