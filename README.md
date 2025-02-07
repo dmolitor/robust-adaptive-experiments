@@ -51,7 +51,7 @@ the ATE with valid CSs that converge to the truth and are valid across
 time.
 
 ``` python
-f = (
+(
     exp_simple.plot()
     + pn.coord_cartesian(ylim=(-.5, 1.5))
     + pn.geom_hline(
@@ -60,8 +60,8 @@ f = (
         linetype="dotted"
     )
     + pn.theme(strip_text=pn.element_blank()) 
-)
-p = f.draw(show=True)
+).show()
 ```
 
-![](README_files/figure-commonmark/cell-4-output-1.png)
+<img src="README_files/figure-commonmark/cell-4-output-1.png"
+width="336" height="240" />
