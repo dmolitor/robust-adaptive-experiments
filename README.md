@@ -321,7 +321,5 @@ ates = pd.concat(
 )
 ```
 
-    /Users/dmolitor/Documents/code/robust-adaptive-experiments/.venv/lib/python3.11/site-packages/plotnine/layer.py:364: PlotnineWarning: geom_errorbar : Removed 4 rows containing missing values.
-
-<img src="README_files/figure-commonmark/cell-9-output-2.png"
+<img src="README_files/figure-commonmark/cell-9-output-1.png"
 width="750" height="300" />

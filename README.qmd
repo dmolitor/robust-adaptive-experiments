@@ -22,6 +22,9 @@ from utils import last
 
 pn.options.dpi = 150
 pn.options.figure_size = (5, 2)
+
+import warnings
+warnings.simplefilter("ignore")
 ```
 
 # Robust Adaptive Experiments
