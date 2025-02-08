@@ -217,23 +217,22 @@ For each treatment arm $k \in K$ at time $t$, the re-weighted
 probability $g(p_t^A(k))$ is defined as follows:
 
 1.) **Apply Importance Weights**: Each probability is first scaled by
-its importance weight: $p_t^*(k)=w_{tk}*p_t^A(k)$.
+its importance weight: $$p_t^*(k)=w_{tk}*p_t^A(k).$$
 
 2.) **Compute Lost Probability Mass**: The probability mass lost due to
-down-weighting is: $L_t = \sum_{k \in K}{p_t^A(k)*(1 - w_{tk})}$.
+down-weighting is: $$L_t = \sum_{k \in K}{p_t^A(k)*(1 - w_{tk})}.$$
 
 3.) **Compute Relative Redistribution Weights**: The total weight sum
-is: $W_t = \sum_{k \in K}{w_{tk}}$. Each arm’s share of the remaining
-mass is given by: $r_{tk} = \frac{w_{tk}}{W_t}$.
+is: $$W_t = \sum_{k \in K}{w_{tk}}.$$ Each arm’s share of the remaining
+mass is given by: $$r_{tk} = \frac{w_{tk}}{W_t}.$$
 
 4.) **Redistribute Lost Mass**: The lost probability mass is
 redistributed proportionally to the relative weights:
-$p_t^g(k) = p_t^*(k) + (r_{tk} * L_t)$
-ptg(k)=pt∗(k)+rtk⋅Ltptg​(k)=pt∗​(k)+rtk​⋅Lt​
+$$p_t^g(k) = p_t^*(k) + (r_{tk} * L_t).$$
 
 5.) **Normalization Check**: Since $\{\p_t^g(k)}_{k \in K}$ is a valid
 probability distribution over $K$, it satisfies:
-$sum_{k \in K}p_t^g(k)=1$.
+$$sum_{k \in K}p_t^g(k)=1.$$
 
 Thus, the function $g$ modifies the original assignment probabilities by
 scaling each by its importance weight and redistributing the lost
