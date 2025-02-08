@@ -171,8 +171,8 @@ width="750" height="300" />
 
 As expected, we see that we are well-powered and fairly precise in our
 ATE estimates for arms 3 and 4 but are under-powered for both arms 1 and
-2 ( CSs include 0). We can confirm that indeed TS focuses the vast
-majority of the sampleon arms 3 and 4.
+2 (CSs include 0). We can confirm that indeed TS focuses the vast
+majority of the sample on arms 3 and 4.
 
 ``` python
 sample_sizes = pd.DataFrame({
@@ -207,7 +207,7 @@ according to a user-defined function of $t$.
 In the notation of Liang and Bojinov, let $A$ represent an arbitrary
 adaptive algorithm. They define $p_t^A(k)$ as the assignment probability
 for arm $k$ at time $t$ under $A$. By construction, the set
-$\{p_t^A(k)\}_{k \in K}$ of adaptive assignment probabilities for all
+${p_t^A(k)}_{k \in K}$ of adaptive assignment probabilities for all
 $k \in K$ forms a valid probability distribution over $K$, meaning
 $\sum_{k \in K}{p_t^A(k)}=1$. I modify these probabilities to
 $g(p_t^A(k))$ where $g$ is a function that re-weights $p_t^A(k)$ based
