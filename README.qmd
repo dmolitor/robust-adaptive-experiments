@@ -243,7 +243,7 @@ two extremes:
 
 - $w_{tk}=1$ for all $t$, which makes $g(p_t^A(k))=p_t^A(k)$, leaving the
 algorithm identical to the original MAD design.
-- $w_{tk}=1$ immediately after arm $k$ reaches statistical significance, which
+- $w_{tk}=0$ immediately after arm $k$ reaches statistical significance, which
 redirects all future probability mass away from $k$, ensuring rapid sample
 accumulation in underpowered arms.
 - More generally, the user defines $w_{tk}$ somewhere in between, where:
