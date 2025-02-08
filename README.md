@@ -171,8 +171,8 @@ width="750" height="300" />
 
 As expected, we see that we are well-powered and fairly precise in our
 ATE estimates for arms 3 and 4 but are under-powered for both arms 1 and
-2. We can confirm that indeed TS focuses the vast majority of the sample
-on arms 3 and 4.
+2 ( CSs include 0). We can confirm that indeed TS focuses the vast
+majority of the sampleon arms 3 and 4.
 
 ``` python
 sample_sizes = pd.DataFrame({
@@ -193,4 +193,134 @@ sample_sizes = pd.DataFrame({
 ```
 
 <img src="README_files/figure-commonmark/cell-8-output-1.png"
+width="750" height="300" />
+
+## MAD modified
+
+I propose a simple extension of the MAD algorithm to address the
+challenge of inadequate power in sub-optimal arms. For each treatment
+arm $k \in K$ and time period $t$, I introduce importance weights
+$w_{tk} \in [0, 1]$. Once the estimated ATE for arm $k$ becomes
+statistically significant, $w_{tk}$ begins to shrink toward zero
+according to a user-defined function of $t$.
+
+In the notation of Liang and Bojinov, let $A$ represent an arbitrary
+adaptive algorithm. They define $p_t^A(k)$ as the assignment probability
+for arm $k$ at time $t$ under $A$. By construction, the set
+$\{p_t^A(k)\}_{k \in K}$ of adaptive assignment probabilities for all
+$k \in K$ forms a valid probability distribution over $K$, meaning
+$\sum_{k \in K}{p_t^A(k)}=1$. I modify these probabilities to
+$g(p_t^A(k))$ where $g$ is a function that re-weights $p_t^A(k)$ based
+on its corresponding importance weight $w_{tk}$.
+
+For each treatment arm $k \in K$ at time $t$, the re-weighted
+probability $g(p_t^A(k))$ is defined as follows:
+
+1.) **Apply Importance Weights**: Each probability is first scaled by
+its importance weight: $p_t^*(k)=w_{tk}*p_t^A(k)$.
+
+2.) **Compute Lost Probability Mass**: The probability mass lost due to
+down-weighting is: $L_t = \sum_{k \in K}{p_t^A(k)*(1 - w_{tk})}$.
+
+3.) **Compute Relative Redistribution Weights**: The total weight sum
+is: $W_t = \sum_{k \in K}{w_{tk}}$. Each arm’s share of the remaining
+mass is given by: $r_{tk} = \frac{w_{tk}}{W_t}$.
+
+4.) **Redistribute Lost Mass**: The lost probability mass is
+redistributed proportionally to the relative weights:
+$p_t^g(k) = p_t^*(k) + (r_{tk} * L_t)$
+ptg(k)=pt∗(k)+rtk⋅Ltptg​(k)=pt∗​(k)+rtk​⋅Lt​
+
+5.) **Normalization Check**: Since $\{\p_t^g(k)}_{k \in K}$ is a valid
+probability distribution over $K$, it satisfies:
+$sum_{k \in K}p_t^g(k)=1$.
+
+Thus, the function $g$ modifies the original assignment probabilities by
+scaling each by its importance weight and redistributing the lost
+probability mass in a manner that preserves the total probability sum.
+
+### User-Specified Decay of Importance Weights
+
+The importance weight function $w_{tk}$​ determines how quickly the
+assignment probability for arm $k$ shrinks once its estimated ATE
+becomes statistically significant. This function is user-defined and
+controls the balance between two extremes:
+
+- $w_{tk}=1$ for all $t$, which makes $g(p_t^A(k))=p_t^A(k)$, leaving
+  the algorithm identical to the original MAD design.
+- $w_{tk}=1$ immediately after arm $k$ reaches statistical significance,
+  which redirects all future probability mass away from $k$, ensuring
+  rapid sample accumulation in underpowered arms.
+- More generally, the user defines $w_{tk}$ somewhere in between, where:
+  - A slower decay of $w_{tk}$ (closer to 1) retains more influence from
+    the adaptive algorithm’s assignment probabilities.
+  - A faster decay (closer to 0) shifts the algorithm toward
+    prioritizing underpowered arms at the expense of reward
+    maximization.
+
+Reasonable choices for $w_{tk}$ include polynomial decay, exponential
+decay, etc. allowing flexibility in tuning the extent of sample
+reallocation.
+
+## Algorithm comparison
+
+Now, let’s compare the relative benefits of the two algorithms. We will
+see that the modified algorithm allows us to be well-powered in all
+treatment arms and gives us significantly more precision than the MAD
+algorithm with equal sample size. However, this comes with the tradeoff
+of increased sample being assigned to sub-optimal treatment arms.
+
+``` python
+# Run the modified algorithm
+mad_modified = MADModified(
+    bandit=TSBernoulli(k=5, control=0, reward=reward_fn),
+    alpha=0.05,
+    delta=lambda x: 1./(x**0.24),
+    t_star=int(20e3)
+)
+mad_modified.fit(cs_precision=0.1, verbose=False, early_stopping=True)
+
+# Run the vanilla algorithm
+mad_vanilla = MAD(
+    bandit=TSBernoulli(k=5, control=0, reward=reward_fn),
+    alpha=0.05,
+    delta=lambda x: 1./(x**0.24),
+    t_star=mad_modified._bandit._t
+)
+mad_vanilla.fit(verbose=False, early_stopping=False)
+
+# Compare the ATEs and CSs
+ates = pd.concat(
+    [
+        mad_modified.estimates().assign(which="modified"),
+        mad_vanilla.estimates().assign(which="mad"),
+        pd.DataFrame({
+            "arm": list(range(1, 5)),
+            "ate": [0.1, 0.12, 0.3, 0.32],
+            "which": ["truth"]*(4)
+        })
+    ],
+    axis=0
+)
+(
+    pn.ggplot(
+        ates,
+        mapping=pn.aes(
+            x="factor(arm)",
+            y="ate",
+            ymin="lb",
+            ymax="ub",
+            color="which"
+        )
+    )
+    + pn.geom_point(position=pn.position_dodge(width=0.3))
+    + pn.geom_errorbar(position=pn.position_dodge(width=0.3), width=0.2)
+    + pn.theme_538()
+    + pn.labs(x="Arm", y="ATE", color="Method")
+)
+```
+
+    /Users/dmolitor/Documents/code/robust-adaptive-experiments/.venv/lib/python3.11/site-packages/plotnine/layer.py:364: PlotnineWarning: geom_errorbar : Removed 4 rows containing missing values.
+
+<img src="README_files/figure-commonmark/cell-9-output-2.png"
 width="750" height="300" />
