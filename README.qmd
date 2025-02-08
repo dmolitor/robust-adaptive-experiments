@@ -258,10 +258,11 @@ etc. allowing flexibility in tuning the extent of sample reallocation.
 ## Algorithm comparison
 
 Now, let's compare the relative benefits of the two algorithms. We will see
-that the modified algorithm allows us to be well-powered in all treatment
-arms and gives us significantly more precision than the MAD algorithm with
-equal sample size. However, this comes with the tradeoff of increased sample
-being assigned to sub-optimal treatment arms.
+that the modified algorithm allows us to substantially improve power to detect
+non-zero ATEs in all treatment arms and gives us more precise ATE estimates
+than the MAD algorithm with equal sample size. However, this comes with the
+tradeoff of increased sample being assigned to sub-optimal treatment arms
+(where the definition of optimal depends on the underlying bandit algorithm).
 ```{python}
 # Run the modified algorithm
 mad_modified = MADModified(
