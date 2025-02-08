@@ -227,7 +227,7 @@ The total weight sum is: $$W_t = \sum_{k \in K}{w_{tk}}.$$ Each arm's share of
 4.) **Redistribute Lost Mass**: The lost probability mass is redistributed
 proportionally to the relative weights: $$p_t^g(k) = p_t^*(k) + (r_{tk} * L_t).$$
 
-5.) **Normalization Check**: Since the set of $\p_t^g(k)$ for all $k \in K$ is
+5.) **Normalization Check**: Since the set of $p_t^g(k)$ for all $k \in K$ is
 a valid probability distribution over $K$, it satisfies: $$sum_{k \in K}p_t^g(k)=1.$$
 
 Thus, the function $g$ modifies the original assignment probabilities by

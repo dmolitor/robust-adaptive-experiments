@@ -230,7 +230,7 @@ mass is given by: $$r_{tk} = \frac{w_{tk}}{W_t}.$$
 redistributed proportionally to the relative weights:
 $$p_t^g(k) = p_t^*(k) + (r_{tk} * L_t).$$
 
-5.) **Normalization Check**: Since the set of $\p_t^g(k)$ for all
+5.) **Normalization Check**: Since the set of $p_t^g(k)$ for all
 $k \in K$ is a valid probability distribution over $K$, it satisfies:
 $$sum_{k \in K}p_t^g(k)=1.$$
 
