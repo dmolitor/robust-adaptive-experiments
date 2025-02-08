@@ -232,7 +232,7 @@ $$p_t^g(k) = p_t^*(k) + (r_{tk} * L_t).$$
 
 5.) **Normalization Check**: Since the set of $p_t^g(k)$ for all
 $k \in K$ is a valid probability distribution over $K$, it satisfies:
-$$sum_{k \in K}p_t^g(k)=1.$$
+$$\sum_{k \in K}p_t^g(k)=1.$$
 
 Thus, the function $g$ modifies the original assignment probabilities by
 scaling each by its importance weight and redistributing the lost
