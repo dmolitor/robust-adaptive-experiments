@@ -206,12 +206,12 @@ according to a user-defined function of $t$.
 
 In the notation of Liang and Bojinov, let $A$ represent an arbitrary
 adaptive algorithm. They define $p_t^A(k)$ as the assignment probability
-for arm $k$ at time $t$ under $A$. By construction, the set
-$\{p_t^A(k)\}_k$ of adaptive assignment probabilities for all $k \in K$
-forms a valid probability distribution over $K$, meaning
-$\sum_{k \in K}{p_t^A(k)}=1$. I modify these probabilities to
-$g(p_t^A(k))$ where $g$ is a function that re-weights $p_t^A(k)$ based
-on its corresponding importance weight $w_{tk}$.
+for arm $k$ at time $t$ under $A$. By construction, the set $p_t^A(k)$
+of adaptive assignment probabilities for all $k \in K$ forms a valid
+probability distribution over $K$, meaning $\sum_{k \in K}{p_t^A(k)}=1$.
+I modify these probabilities to $g(p_t^A(k))$ where $g$ is a function
+that re-weights $p_t^A(k)$ based on its corresponding importance weight
+$w_{tk}$.
 
 For each treatment arm $k \in K$ at time $t$, the re-weighted
 probability $g(p_t^A(k))$ is defined as follows:
