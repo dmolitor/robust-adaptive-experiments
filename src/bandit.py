@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
-from typing import Callable, Dict, List
+from typing import Callable, Dict
 
 class Bandit(ABC):
     """

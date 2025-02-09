@@ -1,10 +1,10 @@
-from bandit import Bandit
+from .bandit import Bandit
 import numpy as np
 import pandas as pd
 import plotnine as pn
 from tqdm import tqdm
 from typing import Callable
-from utils import (
+from .utils import (
     check_shrinkage_rate,
     cs_radius,
     ite,
@@ -46,6 +46,24 @@ class MADBase:
             self._n.append([0])
             self._stat_sig_counter.append(0)
     
+    def estimates(self) -> pd.DataFrame:
+        """
+        A dataframe of treatment effect estimates and confidence bands
+        """
+        results = {"arm": [], "ate": [], "lb": [], "ub": []}
+        for arm in range(len(self._ate)):
+            if arm == self._bandit.control():
+                continue
+            ate = last(self._ate[arm])
+            radius = last(self._cs_radius[arm])
+            lb = ate - radius
+            ub = ate + radius
+            results["arm"].append(arm)
+            results["ate"].append(ate)
+            results["lb"].append(lb)
+            results["ub"].append(ub)
+        return pd.DataFrame(results)
+
     def fit(
         self,
         early_stopping: bool = True,
@@ -153,12 +171,11 @@ class MADBase:
         )
         return plt
     
-    def summary(self, estimates: bool = False) -> None | pd.DataFrame:
+    def summary(self) -> None:
         """
         Print a summary of treatment effect estimates and confidence bands
         """
         print("Treatment effect estimates:")
-        results = {"arm": [], "ate": [], "lb": [], "ub": []}
         for arm in range(len(self._ate)):
             if arm == self._bandit.control():
                 continue
@@ -166,13 +183,7 @@ class MADBase:
             radius = last(self._cs_radius[arm])
             lb = ate - radius
             ub = ate + radius
-            results["arm"].append(arm)
-            results["ate"].append(ate)
-            results["lb"].append(lb)
-            results["ub"].append(ub)
             print(f"- Arm {arm}: {round(ate, 3)} ({round(lb, 5)}, {round(ub, 5)})")
-        if estimates:
-            return pd.DataFrame(results)
 
 
 class MAD(MADBase):
