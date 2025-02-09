@@ -8,17 +8,14 @@ execute:
 ```{python}
 #| echo: false
 #| output: false
-import os
-os.chdir("./src")
-
-from bandit import TSBernoulli
-from mad import MAD, MADModified
+from src.bandit import TSBernoulli
+from src.mad import MAD, MADModified
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotnine as pn
-from rct import rct
-from utils import last
+from src.rct import rct
+from src.utils import last
 
 pn.options.dpi = 150
 pn.options.figure_size = (5, 2)
