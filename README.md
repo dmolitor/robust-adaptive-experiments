@@ -323,3 +323,118 @@ ates = pd.concat(
 
 <img src="README_files/figure-commonmark/cell-9-output-1.png"
 width="750" height="300" />
+
+We can quantify these improvements more precisely by running many
+simulations (e.g. 1000) and comparing the Type 2 error and confidence
+band width of the vanilla MAD algorithm to the modified MAD algorithm
+across those 1000 simulations. Each simulation will run for 20,000
+iterations with early stopping. If the modified algorithm stops early,
+then the vanilla algorithm will also stop early so the sample size is
+the same in each simulation.
+
+``` python
+def compare(i):
+        mad_modified = MADModified(
+            bandit=TSBernoulli(k=5, control=0, reward=reward_fn),
+            alpha=0.05,
+            delta=lambda x: 1./(x**0.24),
+            t_star=int(2e4)
+        )
+        mad_modified.fit(cs_precision=0.1, verbose=False, early_stopping=True)
+
+        # Run the vanilla algorithm
+        mad_vanilla = MAD(
+            bandit=TSBernoulli(k=5, control=0, reward=reward_fn),
+            alpha=0.05,
+            delta=lambda x: 1./(x**0.24),
+            t_star=mad_modified._bandit._t
+        )
+        mad_vanilla.fit(verbose=False, early_stopping=False)
+
+        # Calculate the Type 2 error and the Confidence Sequence width
+        mad_mod_df = (
+            mad_modified
+            .estimates()
+            .assign(
+                idx=i,
+                method="modified",
+                width=lambda x: x["ub"] - x["lb"],
+                error=lambda x: ((0 > x["lb"]) & (0 < x["ub"]))
+            )
+        )
+        mad_van_df = (
+            mad_vanilla
+            .estimates()
+            .assign(
+                idx=i,
+                method="mad",
+                width=lambda x: x["ub"] - x["lb"],
+                error=lambda x: ((0 > x["lb"]) & (0 < x["ub"]))
+            )
+        )
+        return pd.concat([mad_mod_df, mad_van_df])
+
+# Execute in parallel with joblib
+comparison_df_list = [
+    x for x in
+    joblib.Parallel(return_as="generator", n_jobs=-1)(
+        joblib.delayed(compare)(i) for i in range(100)
+    )
+]
+
+# Compare performance across simulations
+comparison_df = pd.melt(
+    (
+        pd
+        .concat(comparison_df_list)
+        .reset_index(drop=True)
+        .assign(error=lambda x: x["error"].apply(lambda y: int(y)))
+    ),
+    id_vars=["arm", "method"],
+    value_vars=["width", "error"],
+    var_name="measurement",
+    value_name="value"
+)
+
+# Summarize results
+summary = (
+    comparison_df
+    .groupby(["arm", "method", "measurement"], as_index=False).agg(
+        mean=("value", "mean"),
+        std=("value", "std")
+    )
+    .assign(
+        ub=lambda x: x["mean"] + x["std"],
+        lb=lambda x: x["mean"] - x["std"]
+    )
+    .assign(
+        ub=lambda x: x["ub"].apply(lambda y: min(1., y)),
+        lb=lambda x: x["lb"].apply(lambda y: max(0., y))
+    )
+)
+```
+
+Now let’s plot the performance of the respective algorithms:
+
+``` python
+(
+    pn.ggplot(
+        summary,
+        pn.aes(
+            x="factor(arm)",
+            y="mean",
+            ymin="lb",
+            ymax="ub",
+            color="method"
+        )
+    )
+    + pn.geom_point(position=pn.position_dodge(width=0.2))
+    + pn.geom_errorbar(position=pn.position_dodge(width=0.2), width=0.01)
+    + pn.facet_wrap("~ measurement")
+    + pn.theme_538()
+    + pn.labs(x="Arm", y="", color="Method")
+)
+```
+
+<img src="README_files/figure-commonmark/cell-11-output-1.png"
+width="750" height="300" />
