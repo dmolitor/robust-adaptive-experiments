@@ -34,6 +34,8 @@ class MADBase:
         self._ite = []
         self._ite_var = []
         self._n = []
+        self._probs = {k: np.empty(0) for k in range(bandit.k())}
+        self._rewards = np.empty(0)
         self._stat_sig_counter = []
         self._t_star = t_star
         for _ in range(bandit.k()):
@@ -89,8 +91,25 @@ class MADBase:
                 if verbose: 
                     print("Stopping early!")
                 break
+
+    def plot_ate(self) -> pn.ggplot:
+        """
+        Plot the ATEs and CSs for each arm at the end of the experiment
+        """
+        estimates_df = self.estimates()
+        plt = (
+            pn.ggplot(
+                estimates_df,
+                pn.aes(x="factor(arm)", y="ate", ymin="lb", ymax="ub")
+            )
+            + pn.geom_point()
+            + pn.geom_errorbar(width=0.001)
+            + pn.labs(x="Arm", y="ATE")
+            + pn.theme_538()
+        )
+        return plt
     
-    def plot(self) -> pn.ggplot:
+    def plot_ate_path(self) -> pn.ggplot:
         """
         Plot the ATE and CS paths for each arm of the experiment
         """
@@ -138,6 +157,48 @@ class MADBase:
             + pn.theme_538()
             + pn.theme(legend_position="none")
             + pn.labs(y="ATE", color="Arm", fill="Arm")
+        )
+        return plt
+    
+    def plot_n(self) -> pn.ggplot:
+        """
+        Plot the total sample size (N) in each arm
+        """
+        sample_df = pd.DataFrame({
+            k: [last(self._n[k])] for k in range(self._bandit.k())
+        })
+        sample_df = pd.melt(sample_df, value_name="n", var_name="arm")
+        plt = (
+            pn.ggplot(sample_df, pn.aes(x="factor(arm)", y="n"))
+            + pn.geom_bar(stat="identity")
+            + pn.labs(x="Arm", y="N")
+            + pn.theme_538()
+        )
+        return plt
+    
+    def plot_probabilities(self) -> pn.ggplot:
+        """
+        Plot the arm assignment probabilities across time
+        """
+        probs_df = pd.melt(
+            frame=pd.DataFrame(self._probs),
+            value_name="probability",
+            var_name="arm"
+        )
+        probs_df["t"] = probs_df.groupby("arm").cumcount() + 1
+        plt = (
+            pn.ggplot(
+                probs_df,
+                pn.aes(
+                    x="t",
+                    y="probability",
+                    color="factor(arm)",
+                    group="factor(arm)"
+                )
+            )
+            + pn.geom_line()
+            + pn.theme_538()
+            + pn.labs(x="t", y="Probability", color="Arm")
         )
         return plt
     
@@ -262,6 +323,9 @@ class MAD(MADBase):
         # multi-class definition is what I'm using here (just a generalization
         # of the 2-class case).
         probs = [d_t/k + (1 - d_t)*p for p in arm_probs.values()]
+        # Record these probabilities for plotting later
+        for key, value in enumerate(probs):
+            self._probs[key] = np.append(self._probs[key], value)
         # Then select the arm as a draw from multinomial with these probabilities
         selected_index = generator.multinomial(1, pvals=probs).argmax()
         selected_arm = list(arm_probs.keys())[selected_index]
@@ -276,6 +340,8 @@ class MAD(MADBase):
         propensity = probs[selected_index]
         # True reward resulting from the selected arm
         reward = self._bandit.reward(selected_arm)
+        # Record the observed reward
+        self._rewards = np.append(self._rewards, reward)
         # Calculate the individual treatment effect estimate (ITE). This is effectively
         # just (reward / propensity). See `utils.ite()` for exactly what it's
         # doing.
@@ -440,6 +506,8 @@ class MADModified(MADBase):
         arm_probs = weighted_probs(arm_probs, self._weights)
 
         probs = [d_t/k + (1 - d_t)*p for p in arm_probs.values()]
+        for key, value in enumerate(probs):
+            self._probs[key] = np.append(self._probs[key], value)
         selected_index = generator.multinomial(1, pvals=probs).argmax()
         selected_arm = list(arm_probs.keys())[selected_index]
         for arm in range(len(self._ate)):
@@ -449,6 +517,7 @@ class MADModified(MADBase):
                 self._n[arm].append((last(self._n[arm])))
         propensity = probs[selected_index]
         reward = self._bandit.reward(selected_arm)
+        self._rewards = np.append(self._rewards, reward)
         treat_effect = ite(reward, int(selected_arm != control), propensity)
         treat_effect_var = var(reward, propensity)
         self._ite[selected_arm].append(treat_effect)
