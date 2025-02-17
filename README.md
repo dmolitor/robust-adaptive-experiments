@@ -10,7 +10,7 @@ or journal submissions. To install necessary dependencies:
 pip install -r requirements.txt
 ```
 
-### IC2S2 2025
+### $\text{IC}^2\text{S}^2$ 2025
 
 To replicate the figures for $\text{IC}^2\text{S}^2$ 2025:
 ```
