@@ -12,7 +12,7 @@ pip install -r requirements.txt
 
 ### IC2S2 2025
 
-To replicate the figures for [$\text{IC}^2\text{S}^2$ 2025](https://www.ic2s2-2025.org/):
+To replicate the figures for <a href="https://www.ic2s2-2025.org/">$\text{IC}^2\text{S}^2$ 2025</a>:
 ```
 python ic2s2_simulations.py
 ```
