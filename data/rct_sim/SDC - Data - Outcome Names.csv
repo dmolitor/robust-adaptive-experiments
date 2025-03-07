@@ -1,0 +1,25 @@
+﻿Outcome_Name_Data,Weights_Name_Data,Outcome_Name_Manuscript
+PA,weights_pa,Partisan Animosity
+ADA,weights_ada,Support for Undemocratic Practices
+SPV,weights_spv,Support for Partisan Violence
+SUC,weights_suc,Support for Undemocratic Candidates
+OppBip,weights_oppbip,Opposition to Bipartisan Cooperation
+SocDistrust,weights_socdistrust,Social Distrust
+SocDis,weights_socdis,Social Distance
+BEPF,weights_bepf,Biased Evaluation of Politicized Facts
+Composite,weights_composite,Composite of Outcomes
+PA_Out,weights_paft,Partisan Animosity - Feeling Thermometer
+PA_DG,weights_padg,Partisan Animosity - Dictator Game
+ODR_1,weights_odr1,Opposition to Automatic Voter Registration
+ODR_2,weights_odr2,Opposition to Voter ID
+ODR_3,weights_odr3,Opposition to Vote by Mail
+ODR_4,weights_odr4,Opposition to Ban of Gerrymandering
+EleDen,weights_eleden,Election Denial
+SPV_D,weights_spv,Support for Partisan Violence - Dichotomized
+Med_Dis,weights_med_dis,Perceived Dissimilarity with Outpartisans
+Med_Pid,weights_med_pid,Strength of Partisanship as a Social Identity
+Med_Ang,weights_med_ang,Anger toward Outpartisans
+Med_Une,weights_med_une,Lack of Empathy toward Outpartisans
+Med_Div,weights_med_div,Lack of Unity against a Common Enemy
+Med_Thr,weights_med_thr,Perceived Threat of Outpartisans
+PA_Diff,weights_paft,
