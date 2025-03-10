@@ -4,6 +4,7 @@
 # Author: Sammy Gold 
 # Date Created: March 7th, 2025 
 # Logs
+#     - 3.10.25: minor updates to labels
 #     - 3.7.25: file created 
 
 
@@ -61,8 +62,8 @@ label(raw$PI_Pre) <- "How important is being a Democrat/Republican to you?"
 label(raw$VacInt_1) <- "COVID Vaccine Boosters. Extremely unlikely (0) - Extremely likely (100)"
 label(raw$Time_Int) <- "? - best guess = time to complete survey"
 label(raw$PA_Out) <- "OUTCOME: Partisan Animosity - Feeling Thermometer"
-label(raw$PA_Ing) <- "Partisan Animosity - ? "
-label(raw$PA_Diff) <- "Partisan Animosity - ?"
+label(raw$PA_Ing) <- "Partisan Animosity - ? intermediate term for PA outcome "
+label(raw$PA_Diff) <- "Partisan Animosity - ? intermediate term for PA outcome"
 label(raw$PA_DG) <- "OUTCOME: Partisan Animosity - Dictator Game"
 label(raw$PA) <- "OUTCOME: Partisan Animosity - Avg of Feeling Thermometer Score and Dictator Game Score"
 label(raw$ADA) <- "OUTCOME: Support for Undemocratic Practices - Avg. of all sliding scale responses"
