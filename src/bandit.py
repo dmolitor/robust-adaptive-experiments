@@ -189,17 +189,18 @@ class TSBernoulli(Bandit):
         self._t = 1
     
     def calculate_probs(self) -> Dict[int, float]:
+        sample_size = 1
         samples = np.column_stack([
             np.random.beta(
                 a=self._params[idx]["alpha"],
                 b=self._params[idx]["beta"],
-                size=1000
+                size=sample_size
             )
             for idx in self._active_arms
         ])
         max_indices = np.argmax(samples, axis=1)
         win_counts = {
-            idx: np.sum(max_indices == i) / 1000
+            idx: np.sum(max_indices == i) / sample_size
             for i, idx in enumerate(self._active_arms)
         }
         return win_counts

@@ -7,7 +7,14 @@ def check_shrinkage_rate(t: int, delta_t: float):
     """
     assert t <= 1 or delta_t > 1/(t**(1/4)), "Sequence is converging to 0 too quickly"
 
-def cs_radius(var: List[float], t: int, t_star: int, alpha: float = 0.05) -> float:
+def cs_radius(
+    var: List[float],
+    t: int,
+    t_star: int,
+    alpha: float = 0.05,
+    mc_adjust: str | None = None,
+    n_arms: int = 1
+) -> float:
     """
     Confidence sequence radius
     
@@ -21,6 +28,11 @@ def cs_radius(var: List[float], t: int, t_star: int, alpha: float = 0.05) -> flo
         The time-step at which we want to optimize the CSs to be tightest
     alpha : float
         The size of the statistical test
+    mc_adjust : str or None
+        The type of multiple comparison adjustment to perform
+    n_arms : int
+        The number of treatment arms. Necessary for multiple
+        comparison adjustment
 
     Return:
     -------
@@ -28,6 +40,10 @@ def cs_radius(var: List[float], t: int, t_star: int, alpha: float = 0.05) -> flo
     tau (ATE estimate) ± V is a valid alpha-level CS.
     """
     S = np.sum(var)
+    if mc_adjust is None:
+        alpha = alpha
+    elif mc_adjust.lower() == "bonferroni":
+        alpha = alpha / n_arms
     eta = np.sqrt((-2*np.log(alpha) + np.log(-2*np.log(alpha) + 1))/t_star)
     rad = np.sqrt(
         2*(S*(eta**2) + 1)/((t**2)*(eta**2))

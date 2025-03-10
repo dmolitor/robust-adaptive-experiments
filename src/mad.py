@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import plotnine as pn
 from tqdm import tqdm
-from typing import Callable
+from typing import Callable, Tuple
 from .utils import (
     check_shrinkage_rate,
     cs_radius,
@@ -34,7 +34,7 @@ class MADBase:
         self._ite = []
         self._ite_var = []
         self._n = []
-        self._probs = {k: np.empty(0) for k in range(bandit.k())}
+        self._probs = {k: [] for k in range(bandit.k())}
         self._rewards = np.empty(0)
         self._stat_sig_counter = []
         self._t_star = t_star
@@ -47,6 +47,46 @@ class MADBase:
             self._cs_width_benchmark.append(0)
             self._n.append([0])
             self._stat_sig_counter.append(0)
+    
+    def _compute_ate(self, arm: int, control: int, t: int, mc_adjust: str = None) -> Tuple[float, float]:
+        """
+        Compute the ATE and corresponding CS as laid out in Liang and Bojinov
+        """
+        # Get the total number of treatment arms
+        n_treatments = self._bandit.k() - 1
+        # Get all the ITEs and their variance estimates for the current arm
+        # as well as the control arm
+        ites = self._ite[control] + self._ite[arm]
+        vars = self._ite_var[control] + self._ite_var[arm]
+        assert len(ites) == len(vars), "Mismatch in dimensions of ITEs and Variances"
+        # If there aren't enough ITEs to calculate the ATE just mark the ATE
+        # as missing (np.nan) and mark the CS as infinite
+        if len(self._ite[arm]) < 1 or len(self._ite[control]) < 1:
+            avg_treat_effect = np.nan
+            conf_seq_radius = np.inf
+        else:
+            # Calculate the ATE from the ITEs:
+            # Calculating np.mean(ites) effectively ignores any time periods
+            # where neither the current arm nor the control arm were selected.
+            # This is WRONG! For each time period (t) where neither the current
+            # arm nor the control were selected, the unbiased ATE estimator
+            # sets ITE_t = 0. This is why the denominator is the full number
+            # of time steps, t.
+            avg_treat_effect = np.sum(ites).astype(float)/t
+            # The Confidence Sequence calculation is similar. Like the ATE estimator,
+            # the estimated variance for any (t) where neither the current arm
+            # nor the control arm were selected is just 0. The CS calculation simply
+            # sums the estimated variances which is why we only need the non-zero
+            # variance estimates. Check out `utils.cs_radius()` for calc details.
+            conf_seq_radius = cs_radius(
+                var=vars,
+                t=t,
+                t_star=self._t_star,
+                alpha=self._alpha,
+                mc_adjust=mc_adjust,
+                n_arms=n_treatments
+            )
+        return avg_treat_effect, conf_seq_radius
     
     def estimates(self) -> pd.DataFrame:
         """
@@ -70,6 +110,7 @@ class MADBase:
         self,
         early_stopping: bool = True,
         cs_precision: float = 0.1,
+        mc_adjust: str = "Bonferroni",
         verbose: bool = True
     ) -> None:
         """
@@ -81,7 +122,11 @@ class MADBase:
         else:
             iter_range = range(self._t_star)
         for _ in iter_range:
-            self.pull(early_stopping=early_stopping, cs_precision=cs_precision)
+            self.pull(
+                early_stopping=early_stopping,
+                cs_precision=cs_precision,
+                mc_adjust=mc_adjust
+            )
             # If all treatment arms have been eliminated, end the algorithm
             if early_stopping and all(
                 value
@@ -283,7 +328,12 @@ class MAD(MADBase):
             t_star=t_star
         )
     
-    def pull(self, early_stopping: bool = True, cs_precision: float = 0.1) -> None:
+    def pull(
+        self,
+        early_stopping: bool = True, 
+        cs_precision: float = 0.1,
+        mc_adjust: str = "Bonferroni"
+    ) -> None:
         """
         Perform one full iteration of the MAD algorithm.
 
@@ -292,7 +342,7 @@ class MAD(MADBase):
         early_stopping : bool
             Whether or not to stop the experiment early when all the arms have
             statistically significant ATEs.
-        cs_precision: float
+        cs_precision : float
             This parameter controls how precise we want to make our Confidence
             Sequences (CSs). If `cs_precision = 0` then the experiment will stop
             immediately as soon as all arms are statistically significant.
@@ -301,6 +351,9 @@ class MAD(MADBase):
             were when they became statistically significant. If
             `cs_precision = 0.4` the experiment will run until all CSs are at
             least 40% tighter, and so on.
+        mc_adjust : str
+            The type of multiple comparison correction to apply to the
+            constructed CSs. Default is Bonferroni
         """
         # The index of the control arm of the bandit, typically 0
         control = self._bandit.control()
@@ -325,7 +378,7 @@ class MAD(MADBase):
         probs = [d_t/k + (1 - d_t)*p for p in arm_probs.values()]
         # Record these probabilities for plotting later
         for key, value in enumerate(probs):
-            self._probs[key] = np.append(self._probs[key], value)
+            self._probs[key].append(value)
         # Then select the arm as a draw from multinomial with these probabilities
         selected_index = generator.multinomial(1, pvals=probs).argmax()
         selected_arm = list(arm_probs.keys())[selected_index]
@@ -357,64 +410,44 @@ class MAD(MADBase):
             # Don't calculate the ATE for the control arm
             if arm == control:
                 continue
-            else:
-                # Get all the ITEs and their variance estimates for the current arm
-                # as well as the control arm
-                ites = self._ite[control] + self._ite[arm]
-                vars = self._ite_var[control] + self._ite_var[arm]
-                assert len(ites) == len(vars), "Mismatch in dimensions of ITEs and Variances"
-            # If there aren't enough ITEs to calculate the ATE just mark the ATE
-            # as missing (np.nan) and mark the CS as infinite
-            if len(self._ite[arm]) < 1 or len(self._ite[control]) < 1:
-                avg_treat_effect = np.nan
-                conf_seq_radius = np.inf
-            else:
-                # Calculate the ATE from the ITEs:
-                # Calculating np.mean(ites) effectively ignores any time periods
-                # where neither the current arm nor the control arm were selected.
-                # This is WRONG! For each time period (t) where neither the current
-                # arm nor the control were selected, the unbiased ATE estimator
-                # sets ITE_t = 0. This is why the denominator is the full number
-                # of time steps, t.
-                avg_treat_effect = np.sum(ites).astype(float)/t
-                # The Confidence Sequence calculation is similar. Like the ATE estimator,
-                # the estimated variance for any (t) where neither the current arm
-                # nor the control arm were selected is just 0. The CS calculation simply
-                # sums the estimated variances which is why we only need the non-zero
-                # variance estimates. Check out `utils.cs_radius()` for calc details.
-                conf_seq_radius = cs_radius(vars, t, self._t_star, self._alpha)
+            # Calculate the ATE and corresponding CS for the current arm
+            avg_treat_effect, conf_seq_radius = self._compute_ate(
+                arm=arm,
+                control=control,
+                t=t,
+                mc_adjust=mc_adjust
+            )
             # Record the ATE and CS for the current arm
             self._ate[arm].append(avg_treat_effect)
             self._cs_radius[arm].append(conf_seq_radius)
             self._cs_width[arm] = 2.0*conf_seq_radius
             # This isn't really the MAD design. This just controls early stopping
             # once all the arms are eliminated (aka all arms have significant ATEs).
+            # If the arm's ATE is undefined (insufficient sample size) skip
+            if np.isnan(avg_treat_effect) or np.isinf(conf_seq_radius):
+                continue
+            # Is the arm statistically significant?
+            stat_sig = np.logical_or(
+                0 <= avg_treat_effect - conf_seq_radius,
+                0 >= avg_treat_effect + conf_seq_radius
+            )
+            # Mark arm's statistical significance
+            self._is_stat_sig[arm] = stat_sig
+            # If the CS is statistically significant for the first time
+            # we will attempt to increase precision by decreasing the
+            # interval width by X% relative to its current width
+            if stat_sig:
+                self._stat_sig_counter[arm] += 1
+                if self._stat_sig_counter[arm] == 1:
+                    self._cs_width_benchmark[arm] = self._cs_width[arm]
             if early_stopping and arm != control:
-                # If the arm's ATE is undefined (insufficient sample size) skip
-                if np.isnan(avg_treat_effect) or np.isinf(conf_seq_radius):
-                    continue
-                # Is the arm statistically significant?
-                stat_sig = np.logical_or(
-                    0 <= avg_treat_effect - conf_seq_radius,
-                    0 >= avg_treat_effect + conf_seq_radius
-                )
                 if stat_sig:
-                    # Mark arm as statistically significant
-                    self._is_stat_sig[arm] = True
-                    # If the CS is statistically significant for the first time
-                    # we will attempt to increase precision by decreasing the
-                    # interval width by X% relative to its current width
-                    self._stat_sig_counter[arm] += 1
-                    if self._stat_sig_counter[arm] == 1:
-                        self._cs_width_benchmark[arm] = self._cs_width[arm]
                     # Now, eliminate the arm iff it is <= (1-X)% of it's width when
                     # initially marked as statistically significant
                     threshold = (1-cs_precision)*self._cs_width_benchmark[arm]
                     if self._cs_width[arm] <= threshold:
                         self._eliminated[arm] = True
                 else:
-                    # Otherwise mark it as NOT significant
-                    self._is_stat_sig[arm] = False
                     # If the arm has been significant but is not any more,
                     # un-eliminate the arm
                     if self._eliminated[arm]:
@@ -489,7 +522,12 @@ class MADModified(MADBase):
         self._is_stat_sig = {k: False for k in range(bandit.k())}
         self._weights = {k: 1. for k in range(bandit.k())}
 
-    def pull(self, early_stopping: bool = True, cs_precision: float = 0.1) -> None:
+    def pull(
+        self,
+        early_stopping: bool = True,
+        cs_precision: float = 0.1,
+        mc_adjust: str = "Bonferroni"
+    ) -> None:
         """
         Perform one full iteration of the modified MAD algorithm
         """
@@ -507,7 +545,7 @@ class MADModified(MADBase):
 
         probs = [d_t/k + (1 - d_t)*p for p in arm_probs.values()]
         for key, value in enumerate(probs):
-            self._probs[key] = np.append(self._probs[key], value)
+            self._probs[key].append(value)
         selected_index = generator.multinomial(1, pvals=probs).argmax()
         selected_arm = list(arm_probs.keys())[selected_index]
         for arm in range(len(self._ate)):
@@ -524,34 +562,29 @@ class MADModified(MADBase):
         self._ite_var[selected_arm].append(treat_effect_var)
         for arm in arm_probs.keys():
             if arm == control:
-                ites = self._ite[control]
-                vars = self._ite_var[control]
-            else:
-                # Get the ITE and variance estimates for the current arm and control arm
-                ites = self._ite[control] + self._ite[arm]
-                vars = self._ite_var[control] + self._ite_var[arm]
-                assert len(ites) == len(vars), "Mismatch in dimensions of ITEs and Variances"
-            if len(self._ite[arm]) < 1 or len(self._ite[control]) < 1:
-                avg_treat_effect = np.nan
-                conf_seq_radius = np.inf
-            else:
-                avg_treat_effect = np.sum(ites).astype(float)/t
-                conf_seq_radius = cs_radius(vars, t, self._t_star, self._alpha)
+                continue
+            avg_treat_effect, conf_seq_radius = self._compute_ate(
+                arm=arm,
+                control=control,
+                t=t,
+                mc_adjust=mc_adjust
+            )
             self._ate[arm].append(avg_treat_effect)
             self._cs_radius[arm].append(conf_seq_radius)
             self._cs_width[arm] = 2.0*conf_seq_radius
-            if early_stopping and arm != control:
-                if np.isnan(avg_treat_effect) or np.isinf(conf_seq_radius):
+            if np.isnan(avg_treat_effect) or np.isinf(conf_seq_radius):
                     continue
-                stat_sig = np.logical_or(
-                    0 <= avg_treat_effect - conf_seq_radius,
-                    0 >= avg_treat_effect + conf_seq_radius
-                )
+            stat_sig = np.logical_or(
+                0 <= avg_treat_effect - conf_seq_radius,
+                0 >= avg_treat_effect + conf_seq_radius
+            )
+            self._is_stat_sig[arm] = stat_sig
+            if stat_sig:
+                self._stat_sig_counter[arm] += 1
+                if self._stat_sig_counter[arm] == 1:
+                    self._cs_width_benchmark[arm] = self._cs_width[arm]
+            if early_stopping and arm != control:
                 if stat_sig:
-                    self._is_stat_sig[arm] = True
-                    self._stat_sig_counter[arm] += 1
-                    if self._stat_sig_counter[arm] == 1:
-                        self._cs_width_benchmark[arm] = self._cs_width[arm]
                     threshold = (1-cs_precision)*self._cs_width_benchmark[arm]
                     if self._cs_width[arm] <= threshold and not self._eliminated[arm]:
                         self._eliminated[arm] = True
@@ -562,7 +595,6 @@ class MADModified(MADBase):
                         self._eliminated_t[arm] = t
 
                 else:
-                    self._is_stat_sig[arm] = False
                     if self._eliminated[arm]:
                         self._eliminated[arm] = False
                         self._eliminated_t[arm] = None
@@ -579,4 +611,4 @@ class MADModified(MADBase):
                         self._decay(t + 1 - self._eliminated_t[arm]),
                         1e-10
                     ]).astype(float)
-        return None   
+        return None

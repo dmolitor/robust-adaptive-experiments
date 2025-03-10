@@ -47,7 +47,7 @@ mad_modified = MADModified(
     bandit=TSBernoulli(k=5, control=0, reward=reward_fn),
     alpha=0.05,
     delta=lambda x: 1./(x**0.24),
-    t_star=int(20e3),
+    t_star=int(30e3),
     decay=lambda x: 1./(x**(1./8.))
 )
 mad_modified.fit(cs_precision=0.1, verbose=True, early_stopping=True)
@@ -131,7 +131,7 @@ def compare(i):
         bandit=TSBernoulli(k=5, control=0, reward=reward_fn),
         alpha=0.05,
         delta=lambda x: 1. / (x ** 0.24),
-        t_star=int(2e4),
+        t_star=int(3e4),
         decay=lambda x: 1. / (x ** (1. / 8.))
     )
     mad_modified.fit(cs_precision=0.1, verbose=False, early_stopping=True)
@@ -267,7 +267,7 @@ facet_labels = {
     "n": "Sample size",
     "n_pct": "Sample size %"
 }
-figure1 = (
+(
     pn.ggplot(
         metrics_summary[metrics_summary["meas"].isin(["error", "width"])],
         pn.aes(
@@ -287,18 +287,17 @@ figure1 = (
     )
     + pn.theme_538()
     + pn.labs(x="Arm", y="", color="Method")
-)
-figure1.save(
+).save(
     base_dir / "figures" / "ic2s2_figure1.png",
     width=5,
     height=2,
-    dpi=300
+    dpi=500
 )
 
 # These plots illustrate the tradeoffs of the modified algorithm. On average,
 # it allocates significantly more sample to sub-optimal arms compared to the
 # standard MAD algorithm.
-figure2 = (
+(
     pn.ggplot(
         metrics_summary[metrics_summary["meas"].isin(["n", "n_pct"])],
         pn.aes(
@@ -318,12 +317,11 @@ figure2 = (
     )
     + pn.theme_538()
     + pn.labs(x="Arm", y="", color="Method")
-)
-figure2.save(
+).save(
     base_dir / "figures" / "ic2s2_figure2.png",
     width=5,
     height=2,
-    dpi=300
+    dpi=500
 )
 
 
@@ -334,4 +332,140 @@ figure2.save(
     + pn.geom_boxplot()
     + pn.theme_538()
     + pn.labs(x="Method", y="Cumulative reward")
+)
+
+# Type 1 error simulations
+
+def compare_type1_error(i, reward, t_star):
+    # No multiple comparison adjustment
+    mad_modified = MADModified(
+        bandit=TSBernoulli(k=10, control=0, reward=reward),
+        alpha=0.05,
+        delta=lambda x: 1. / (x ** 0.24),
+        t_star=t_star,
+        decay=lambda x: 1. / (x ** (1. / 8.))
+    )
+    mad_modified.fit(verbose=False, early_stopping=False, mc_adjust=None)
+    # Bonferroni adjustment to ensure FWER <= alpha
+    mad_modified_bonferroni = MADModified(
+        bandit=TSBernoulli(k=10, control=0, reward=reward),
+        alpha=0.05,
+        delta=lambda x: 1. / (x ** 0.24),
+        t_star=t_star,
+        decay=lambda x: 1. / (x ** (1. / 8.))
+    )
+    mad_modified_bonferroni.fit(verbose=False, early_stopping=False)
+
+    type1_error = pd.concat([
+        pd.DataFrame({
+            "arm": [k]*2,
+            "error": [
+                mad_modified._stat_sig_counter[k] > 0,
+                mad_modified_bonferroni._stat_sig_counter[k] > 0
+            ],
+            "adjustment_method": ["None", "Bonferroni"],
+            "method": ["MADMod"]*2,
+            "idx": [i]*2
+        })
+        for k in range(1, 10)
+    ]).reset_index(drop=True)
+    
+    return type1_error
+
+def reward_fn(arm: int) -> float:
+    values = {
+        0: generator.binomial(1, 0.5), # Control arm
+        1: generator.binomial(1, 0.5), # ATE = 0
+        2: generator.binomial(1, 0.5), # ATE = 0
+        3: generator.binomial(1, 0.5), # ATE = 0
+        4: generator.binomial(1, 0.5),  # ATE = 0
+        5: generator.binomial(1, 0.5),
+        6: generator.binomial(1, 0.5),
+        7: generator.binomial(1, 0.5),
+        8: generator.binomial(1, 0.5),
+        9: generator.binomial(1, 0.5)
+    }
+    return values[arm]
+
+type1_error_sim = [
+    x for x in
+    joblib.Parallel(return_as="generator", n_jobs=-1)(
+        joblib.delayed(compare_type1_error)(i, reward=reward_fn, t_star=int(1e4)) for i in range(1000)
+    )
+]
+
+# Calculate the Type 1 Family-wise error rate (FWER)
+# aggregate across simulations
+overall_type1_error = (
+    pd
+    .concat(type1_error_sim, ignore_index=True)
+    .groupby(["idx", "method", "adjustment_method"], as_index=False)
+    .agg(idx_error=("error", "any"))
+    .groupby(["method", "adjustment_method"], as_index=False)
+    .agg(
+        coverage=("idx_error", "mean"),
+        n=("idx_error", "count")
+    )
+)
+overall_type1_error["se"] = (
+    np.sqrt(overall_type1_error["coverage"]
+    * (1 - overall_type1_error["coverage"])
+    / overall_type1_error["n"])
+)
+overall_type1_error["ci_lower"] = (
+    overall_type1_error["coverage"]
+    - 1.96 * overall_type1_error["se"]
+)
+overall_type1_error["ci_upper"] = (
+    overall_type1_error["coverage"]
+    + 1.96 * overall_type1_error["se"]
+)
+overall_type1_error["coverage_type"] = "Simultaneous"
+
+# Calculate marginal coverage of true parameters
+individual_type1_error = (
+    pd.concat(type1_error_sim, ignore_index=True)
+    .groupby(["method", "adjustment_method"], as_index=False)
+    .agg(coverage=("error", "mean"), n=("error", "count"))
+)
+individual_type1_error["se"] = (
+    np.sqrt(individual_type1_error["coverage"]
+    * (1 - individual_type1_error["coverage"])
+    / individual_type1_error["n"])
+)
+individual_type1_error["ci_lower"] = (
+    individual_type1_error["coverage"]
+    - 1.96 * individual_type1_error["se"]
+)
+individual_type1_error["ci_upper"] = (
+    individual_type1_error["coverage"]
+    + 1.96 * individual_type1_error["se"]
+)
+individual_type1_error["coverage_type"] = "Marginal"
+
+# Merge coverage dfs
+coverage_df = pd.concat([overall_type1_error, individual_type1_error])
+
+# Plot coverage error
+alpha = 0.05
+(
+    pn.ggplot(
+        coverage_df,
+        pn.aes(
+            x="factor(adjustment_method)",
+            y="coverage",
+            ymin="ci_lower",
+            ymax="ci_upper",
+            color="factor(coverage_type)"
+        )
+    )
+    + pn.geom_point(position=pn.position_dodge(width=0.2))
+    + pn.geom_linerange(position=pn.position_dodge(width=0.2))
+    + pn.geom_hline(yintercept=alpha, linetype="dashed")
+    + pn.theme_538()
+    + pn.labs(
+        x="Adjustment",
+        y="Type 1 (coverage) error rate",
+        color="Coverage"
+    )
 )
