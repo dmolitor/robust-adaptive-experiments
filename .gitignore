@@ -153,3 +153,5 @@ cython_debug/
 
 .jupyter_cache
 .DS_Store
+renv/
+.Rprofile

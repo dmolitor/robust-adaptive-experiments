@@ -11,9 +11,10 @@
 # -------------------------------------------------------------------------
 library(tidyverse)
 library(Hmisc)
+library(here)
 
-wd <- "/users/sammygold/Documents/GitHub/robust-adaptive-experiments/"
-raw_fp <- paste0(wd, "/data/rct_sim/SDC - Data - Recoded.csv")
+wd <- here()
+raw_fp <- here(wd, "/data/rct_sim/SDC - Data - Recoded.csv")
 
 
 # -------------------------------------------------------------------------
