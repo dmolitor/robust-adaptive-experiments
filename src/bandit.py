@@ -111,10 +111,17 @@ class TSNormal(Bandit):
     """
     A class for implementing Thompson Sampling on Normal data
     """
-    def __init__(self, k: int, control: int, reward: Callable[[int], float]):
+    def __init__(
+        self,
+        k: int,
+        control: int,
+        reward: Callable[[int], float],
+        optimize: str = "max"
+    ):
         self._active_arms = [x for x in range(k)]
         self._control = control
         self._k = k
+        self._optimize = optimize
         self._params = {x: {"mean": 0., "var": 10e6} for x in range(k)}
         self._rewards = {x: [] for x in range(k)}
         self._reward_fn = reward
@@ -125,13 +132,18 @@ class TSNormal(Bandit):
             np.random.normal(
                 self._params[idx]["mean"],
                 np.sqrt(self._params[idx]["var"]),
-                1000
+                1
             )
             for idx in self._active_arms
         ])
-        max_indices = np.argmax(samples, axis=1)
+        if self._optimize == "max":
+            optimal_indices = np.argmax(samples, axis=1)
+        elif self._optimize == "min":
+            optimal_indices = np.argmin(samples, axis=1)
+        else:
+            raise ValueError("`self._optimal` must be one of: ['max', 'min']")
         win_counts = {
-            idx: np.sum(max_indices == i) / 1000
+            idx: np.sum(optimal_indices == i) / 1
             for i, idx in enumerate(self._active_arms)
         }
         return win_counts
@@ -158,11 +170,17 @@ class TSNormal(Bandit):
 
     def reward(self, arm: int) -> float:
         outcome = self._reward_fn(arm)
-        self._rewards[arm].append(outcome)
+        if isinstance(outcome, tuple):
+            self._rewards[arm].append(outcome[0])
+        else:
+            self._rewards[arm].append(outcome)
         var = (5/4)**2
         var_prior = self._params[arm]["var"]
         var_posterior = 1/(1/var_prior + 1/var)
-        mean = outcome
+        if isinstance(outcome, tuple):
+            mean = outcome[0]
+        else:
+            mean = outcome
         mean_prior = self._params[arm]["mean"]
         mean_posterior = var_posterior*(mean_prior/var_prior + mean/var)
         self._params[arm]["mean"] = mean_posterior
@@ -178,11 +196,18 @@ class TSBernoulli(Bandit):
     """
     A class for implementing Thompson Sampling on Bernoulli data
     """
-    def __init__(self, k: int, control: int, reward: Callable[[int], float]):
+    def __init__(
+        self,
+        k: int,
+        control: int,
+        reward: Callable[[int], float],
+        optimize: str = "max"
+    ):
         self._active_arms = [x for x in range(k)]
         self._control = control
         self._k = k
         self._means = {x: 0. for x in range(k)}
+        self._optimize = optimize
         self._params = {x: {"alpha": 1, "beta": 1} for x in range(k)}
         self._rewards = {x: [] for x in range(k)}
         self._reward_fn = reward
@@ -198,9 +223,14 @@ class TSBernoulli(Bandit):
             )
             for idx in self._active_arms
         ])
-        max_indices = np.argmax(samples, axis=1)
+        if self._optimize == "max":
+            optimal_indices = np.argmax(samples, axis=1)
+        elif self._optimize == "min":
+            optimal_indices = np.argmin(samples, axis=1)
+        else:
+            raise ValueError("`self._optimal` must be one of: ['max', 'min']")
         win_counts = {
-            idx: np.sum(max_indices == i) / sample_size
+            idx: np.sum(optimal_indices == i) / sample_size
             for i, idx in enumerate(self._active_arms)
         }
         return win_counts
@@ -227,8 +257,13 @@ class TSBernoulli(Bandit):
     
     def reward(self, arm: int) -> float:
         outcome = self._reward_fn(arm)
-        self._rewards[arm].append(outcome)
-        if outcome == 1:
+        if isinstance(outcome, tuple):
+            reward = outcome[0]
+            self._rewards[arm].append(reward)
+        else:
+            reward = outcome
+            self._rewards[arm].append(reward)
+        if reward == 1:
             self._params[arm]["alpha"] += 1
         else:
             self._params[arm]["beta"] += 1

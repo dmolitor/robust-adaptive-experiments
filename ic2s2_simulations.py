@@ -8,11 +8,47 @@ import plotnine as pn
 from scipy.stats import t
 
 from src.bandit import TSBernoulli
-from src.mad import MAD, MADModified
+from src.mad import MAD, MADModified, MADCovariateAdjusted
 from src.utils import last
 
 generator = np.random.default_rng(seed=123)
 
+# Reward function for simulations
+#
+# Simulate a very simple binary experiment
+def reward_fn(arm: int) -> float:
+    values = {
+        0: generator.binomial(1, 0.5),  # Control arm
+        1: generator.binomial(1, 0.6),  # ATE = 0.1
+    }
+    return values[arm]
+
+mad = MAD(
+    TSBernoulli(k=2, control=0, reward=reward_fn),
+    alpha=0.05,
+    delta=lambda x: 1./(x**0.24),
+    t_star=int(5e3)
+)
+mad.fit(cs_precision=0.0, mc_adjust=None)
+(
+    mad.plot_ate_path()
+    + pn.coord_cartesian(ylim=(-1, 1.5))
+    + pn.geom_hline(yintercept=0.1, linetype="dashed")
+    + pn.theme(strip_text_x=pn.element_blank())
+).save(
+    base_dir / "figures" / "mad_ts_ate.png",
+    width=4,
+    height=3,
+    dpi=500
+)
+(
+    mad.plot_n()
+).save(
+    base_dir / "figures" / "mad_ts_n.png",
+    width=2,
+    height=3,
+    dpi=500
+)
 
 # Reward function for simulations
 #
@@ -29,7 +65,6 @@ def reward_fn(arm: int) -> float:
         4: generator.binomial(1, 0.82)  # ATE = 0.32
     }
     return values[arm]
-
 
 # Algorithm comparison
 # 
@@ -50,7 +85,7 @@ mad_modified = MADModified(
     t_star=int(30e3),
     decay=lambda x: 1./(x**(1./8.))
 )
-mad_modified.fit(cs_precision=0.1, verbose=True, early_stopping=True)
+mad_modified.fit(cs_precision=0.1, verbose=True, early_stopping=True, mc_adjust=None)
 
 # Run the vanilla algorithm
 mad_vanilla = MAD(
@@ -59,9 +94,9 @@ mad_vanilla = MAD(
     delta=lambda x: 1./(x**0.24),
     t_star=mad_modified._bandit._t
 )
-mad_vanilla.fit(verbose=True, early_stopping=False)
+mad_vanilla.fit(verbose=True, early_stopping=False, mc_adjust=None)
 
-# Compare the ATEs and CSs
+# Plot the MAD vanilla estimates
 ates = pd.concat(
     [
         mad_modified.estimates().assign(which="MADMod"),
@@ -74,6 +109,40 @@ ates = pd.concat(
     ],
     axis=0
 )
+
+(
+    pn.ggplot(
+        ates[ates["which"] != "MADMod"],
+        mapping=pn.aes(
+            x="factor(arm)",
+            y="ate",
+            ymin="lb",
+            ymax="ub",
+            color="which"
+        )
+    )
+    + pn.geom_point(position=pn.position_dodge(width=0.3))
+    + pn.geom_errorbar(position=pn.position_dodge(width=0.3), width=0.001)
+    + pn.geom_hline(yintercept=0, linetype="dashed", color="black")
+    + pn.theme_538()
+    + pn.labs(x="Arm", y="ATE", color="Method")
+).save(
+    base_dir / "figures" / "mad_ts_ate_underpowered.png",
+    width=5,
+    height=3,
+    dpi=500
+)
+
+(
+    mad_vanilla.plot_n()
+).save(
+    base_dir / "figures" / "mad_ts_n_underpowered.png",
+    width=3,
+    height=3,
+    dpi=500
+)
+
+# Compare the ATEs and CSs
 (
     pn.ggplot(
         ates,
@@ -90,6 +159,11 @@ ates = pd.concat(
     + pn.geom_hline(yintercept=0, linetype="dashed", color="black")
     + pn.theme_538()
     + pn.labs(x="Arm", y="ATE", color="Method")
+).save(
+    base_dir / "figures" / "mad_vs_madmod_ate_underpowered.png",
+    width=5,
+    height=3,
+    dpi=500
 )
 
 
@@ -115,6 +189,11 @@ sample_sizes = pd.concat([
     + pn.geom_bar(stat="identity", position=pn.position_dodge(width=0.75), width=0.7)
     + pn.theme_538()
     + pn.labs(x="Arm", y="N", color="Method", fill="Method")
+).save(
+    base_dir / "figures" / "mad_vs_madmod_n_underpowered.png",
+    width=3,
+    height=3,
+    dpi=500
 )
 
 
@@ -374,11 +453,11 @@ def compare_type1_error(i, reward, t_star):
 
 def reward_fn(arm: int) -> float:
     values = {
-        0: generator.binomial(1, 0.5), # Control arm
-        1: generator.binomial(1, 0.5), # ATE = 0
-        2: generator.binomial(1, 0.5), # ATE = 0
-        3: generator.binomial(1, 0.5), # ATE = 0
-        4: generator.binomial(1, 0.5),  # ATE = 0
+        0: generator.binomial(1, 0.5),
+        1: generator.binomial(1, 0.5),
+        2: generator.binomial(1, 0.5),
+        3: generator.binomial(1, 0.5),
+        4: generator.binomial(1, 0.5),
         5: generator.binomial(1, 0.5),
         6: generator.binomial(1, 0.5),
         7: generator.binomial(1, 0.5),

@@ -2,6 +2,7 @@ from .bandit import Bandit
 import numpy as np
 import pandas as pd
 import plotnine as pn
+import statsmodels.api as sm
 from tqdm import tqdm
 from typing import Callable, Tuple
 from .utils import (
@@ -37,6 +38,7 @@ class MADBase:
         self._probs = {k: [] for k in range(bandit.k())}
         self._rewards = np.empty(0)
         self._stat_sig_counter = []
+        self._t_no_ite = 0
         self._t_star = t_star
         for _ in range(bandit.k()):
             self._ite.append([])
@@ -48,7 +50,7 @@ class MADBase:
             self._n.append([0])
             self._stat_sig_counter.append(0)
     
-    def _compute_ate(self, arm: int, control: int, t: int, mc_adjust: str = None) -> Tuple[float, float]:
+    def _compute_ate(self, arm: int, control: int, t: int, mc_adjust: str = None, print_stuff = False) -> Tuple[float, float]:
         """
         Compute the ATE and corresponding CS as laid out in Liang and Bojinov
         """
@@ -611,4 +613,234 @@ class MADModified(MADBase):
                         self._decay(t + 1 - self._eliminated_t[arm]),
                         1e-10
                     ]).astype(float)
+        return None
+
+class MADCovariateAdjusted(MADBase):
+    """
+    A class implementing a modification of Liang and Bojinov's Mixture-Adaptive
+    Design (MAD). Instead of relying on an IPW estimator, we utilize an AIPW
+    estimator that harnesses the power of outcome models to reduce the variance
+    of our ATE estimates.
+    
+    Parameters
+    ----------
+    bandit : Bandit 
+        This object must implement several crucial
+        methods/attributes. For more details on how to create a custom Bandit
+        object, see the documentation of the Bandit class.
+    alpha : float
+        The size of the statistical test (testing for non-zero treatment effects)
+    delta : Callable[[int], float]
+        A function that generates the real-valued sequence delta_t in Liang
+        and Bojinov (Definition 4 - Mixture Adaptive Design). This sequence
+        should converge to 0 slower than 1/t^(1/4) where t denotes the time
+        frame in {0, ... n}. This function should intake an integer (t) and
+        output a float (the corresponding delta_t)
+    t_star : int
+        The time-step at which we want to optimize the CSs to be tightest.
+        E.g. Liang and Bojinov set this to the max horizon of their experiment
+    """
+    def __init__(
+        self,
+        bandit: Bandit,
+        alpha: float,
+        delta: Callable[[int], float],
+        t_star: int
+    ):
+        super().__init__(
+            bandit=bandit,
+            alpha=alpha,
+            delta=delta,
+            t_star=t_star
+        )
+        self._covariates = pd.DataFrame()
+    
+    def ite(
+        self,
+        outcome,
+        covariates: pd.DataFrame,
+        selected_arm,
+        control_arm,
+        propensity
+    ) -> float:
+        """
+        Unbiased individual treatment effect estimator:
+        
+        TODO: replace the modeling stuff below to accept a user-provided fitting function
+        """
+        if not self._covariates.empty:
+            ## TODO: Fix this!!! It will break with more than one arm!!!
+            treat_X = self._covariates[self._covariates["arm"] == 1].drop("arm", axis=1)
+            treat_X = sm.add_constant(treat_X)
+            treat_y = self._rewards[treat_X.index.to_numpy()]
+            control_X = self._covariates[self._covariates["arm"] == control_arm].drop("arm", axis=1)
+            control_X = sm.add_constant(control_X)
+            control_y = self._rewards[control_X.index.to_numpy()]
+        else:
+            treat_X = pd.DataFrame()
+            control_X = pd.DataFrame()
+        # If there isn't enough data to fit, return NaN
+        if (len(treat_X) < 10) or (len(control_X) < 10):
+            return np.nan, np.nan
+        # Add constant term to covariates
+        covariates = sm.add_constant(covariates, has_constant="add")
+        # Fit models on the control and treatment groups
+        treat_model = sm.OLS(treat_y, treat_X).fit()
+        control_model = sm.OLS(control_y, control_X).fit()
+        # Generate predicted counterfactual values
+        pred_treat = treat_model.predict(covariates).iloc[0]
+        pred_control = control_model.predict(covariates).iloc[0]
+        # Calculate AIPW estimate
+        pred_ite = pred_treat - pred_control
+        if selected_arm == control_arm:
+            ite = pred_ite - ((outcome - pred_control)/propensity)
+            ite_var = ((outcome - pred_control)**2)/(propensity**2)
+        else:
+            ite = pred_ite + ((outcome - pred_treat)/propensity)
+            ite_var = ((outcome - pred_treat)**2)/(propensity**2)
+        return ite, ite_var
+    
+    def pull(
+        self,
+        early_stopping: bool = True, 
+        cs_precision: float = 0.1,
+        mc_adjust: str = "Bonferroni"
+    ) -> None:
+        """
+        Perform one full iteration of the MAD algorithm.
+
+        Parameters
+        ----------
+        early_stopping : bool
+            Whether or not to stop the experiment early when all the arms have
+            statistically significant ATEs.
+        cs_precision : float
+            This parameter controls how precise we want to make our Confidence
+            Sequences (CSs). If `cs_precision = 0` then the experiment will stop
+            immediately as soon as all arms are statistically significant.
+            If `cs_precision = 0.2` then the experiment will run until all
+            CSs are at least 20% tighter (shorter) than they
+            were when they became statistically significant. If
+            `cs_precision = 0.4` the experiment will run until all CSs are at
+            least 40% tighter, and so on.
+        mc_adjust : str
+            The type of multiple comparison correction to apply to the
+            constructed CSs. Default is Bonferroni
+        """
+        # The index of the control arm of the bandit, typically 0
+        control = self._bandit.control()
+        # The number of bandit arms
+        k = self._bandit.k()
+        # The CURRENT time step of the bandit
+        t = self._bandit.t()
+        # The random exploration mixing rate at time step t; For more details
+        # on this mixing sequence delta_t look at Liang and Bojinov on Page 13
+        # directly above Theorem 1 and in the first new paragraph on Page 11.
+        d_t = self._delta(t)
+        # This function just ensures that the mixing rate d_t follows the
+        # requirements stated in the paper. Can't shrink faster than 1/(t^(1/4)).
+        check_shrinkage_rate(t, d_t)
+        # Get the arm assignment probabilities from the underlying bandit algo
+        arm_probs = self._bandit.probabilities()
+        # For each arm, calculate the MAD probabilities based on the bandit probs.
+        # This equation is Definition 4 in the paper and it's multi-arm corollary
+        # is defined in the third paragraph in Appendix C (Page 34). The
+        # multi-class definition is what I'm using here (just a generalization
+        # of the 2-class case).
+        probs = [d_t/k + (1 - d_t)*p for p in arm_probs.values()]
+        # Record these probabilities for plotting later
+        for key, value in enumerate(probs):
+            self._probs[key].append(value)
+        # Then select the arm as a draw from multinomial with these probabilities
+        selected_index = generator.multinomial(1, pvals=probs).argmax()
+        selected_arm = list(arm_probs.keys())[selected_index]
+        # This is not essential for the MAD algorithm. I'm simply tracking how
+        # much sample has been assigned to each arm.
+        for arm in range(len(self._ate)):
+            if arm == selected_arm:
+                self._n[arm].append((last(self._n[arm]) + 1))
+            else:
+                self._n[arm].append((last(self._n[arm])))
+        # Propensity score; obviously just the probability of the selected arm
+        propensity = probs[selected_index]
+        # True reward resulting from the selected arm
+        reward, covariates = self._bandit.reward(selected_arm)
+        # Calculate the individual treatment effect estimate (ITE). This is effectively
+        # just (reward / propensity). See `utils.ite()` for exactly what it's
+        # doing.
+        # Also calculates the plug-in variance estimate of the ITE. See `utils.ite()`.
+        treat_effect, treat_effect_var = self.ite(
+            outcome=reward,
+            covariates=covariates,
+            selected_arm=selected_arm,
+            control_arm=control,
+            propensity=propensity
+        )
+        # Record the observed reward
+        self._rewards = np.append(self._rewards, reward)
+        # Record the observed covariates
+        covariates["arm"] = selected_arm
+        self._covariates = (
+            pd
+            .concat([self._covariates, covariates], axis=0)
+            .reset_index(drop=True)
+        )
+        # Record the ITE and it's variance for calculating the ATE later.
+        # Only record if they are not NaN (aka enough data to actually
+        # calculate an effect).
+        if not np.isnan(treat_effect) and not np.isnan(treat_effect_var):
+            self._ite[selected_arm].append(treat_effect)
+            self._ite_var[selected_arm].append(treat_effect_var)
+        else:
+            # Record every time we don't calculate an ITE or ITE variance
+            # This affects the denominator of our ATE calculation
+            self._t_no_ite += 1
+        # Now, for each arm, calculate its ATE and corresponding Confidence Sequence (CS)
+        # value for the current time step t.
+        for arm in arm_probs.keys():
+            # Don't calculate the ATE for the control arm
+            if arm == control:
+                continue
+            # Calculate the ATE and corresponding CS for the current arm
+            avg_treat_effect, conf_seq_radius = self._compute_ate(
+                arm=arm,
+                control=control,
+                t=(t - self._t_no_ite), # Make sure the denominator doesn't include N where no ITE was calculated
+                mc_adjust=mc_adjust
+            )
+            # Record the ATE and CS for the current arm
+            self._ate[arm].append(avg_treat_effect)
+            self._cs_radius[arm].append(conf_seq_radius)
+            self._cs_width[arm] = 2.0*conf_seq_radius
+            # This isn't really the MAD design. This just controls early stopping
+            # once all the arms are eliminated (aka all arms have significant ATEs).
+            # If the arm's ATE is undefined (insufficient sample size) skip
+            if np.isnan(avg_treat_effect) or np.isinf(conf_seq_radius):
+                continue
+            # Is the arm statistically significant?
+            stat_sig = np.logical_or(
+                0 <= avg_treat_effect - conf_seq_radius,
+                0 >= avg_treat_effect + conf_seq_radius
+            )
+            # Mark arm's statistical significance
+            self._is_stat_sig[arm] = stat_sig
+            # If the CS is statistically significant for the first time
+            # we will attempt to increase precision by decreasing the
+            # interval width by X% relative to its current width
+            if stat_sig:
+                self._stat_sig_counter[arm] += 1
+                if self._stat_sig_counter[arm] == 1:
+                    self._cs_width_benchmark[arm] = self._cs_width[arm]
+            if early_stopping and arm != control:
+                if stat_sig:
+                    # Now, eliminate the arm iff it is <= (1-X)% of it's width when
+                    # initially marked as statistically significant
+                    threshold = (1-cs_precision)*self._cs_width_benchmark[arm]
+                    if self._cs_width[arm] <= threshold:
+                        self._eliminated[arm] = True
+                else:
+                    # If the arm has been significant but is not any more,
+                    # un-eliminate the arm
+                    if self._eliminated[arm]:
+                        self._eliminated[arm] = False
         return None
