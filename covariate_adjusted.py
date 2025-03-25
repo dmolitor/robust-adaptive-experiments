@@ -8,7 +8,7 @@ import plotnine as pn
 from scipy.stats import t
 from typing import Dict, Tuple
 
-from src.bandit import TSBernoulli, TSNormal, UCB
+from src.bandit import Reward, TSBernoulli, TSNormal, UCB
 from src.mad import MAD, MADModified, MADCovariateAdjusted
 from src.model import LassoModel, LogitModel, OLSModel
 from src.utils import last
@@ -17,7 +17,7 @@ generator = np.random.default_rng(seed=123)
 
 # Binary treatment with Normally distributed rewards --------------------------
 
-def reward_covar_adj(arm: int) -> Tuple[float, pd.DataFrame]:
+def reward_covar_adj(arm: int) -> Reward:
     ate = {0: 0.0, 1: 1.3}
     # Draw X values randomly (here using standard normal distribution)
     X1 = np.random.randn()
@@ -29,10 +29,13 @@ def reward_covar_adj(arm: int) -> Tuple[float, pd.DataFrame]:
     mean = 0.5 + ate + 0.3 * X1 + 1.0 * X2 - 0.5 * X3
     Y_i = generator.normal(mean, 1)
     X_df = pd.DataFrame({"X_1": [X1], "X_2": [X2], "X_3": [X3]})
-    return float(Y_i), X_df
+    reward = Reward(outcome=float(Y_i), covariates=X_df)
+    return reward
 
-def reward_vanilla(arm: int) -> float:
-    return reward_covar_adj(arm=arm)[0]
+def reward_vanilla(arm: int) -> Reward:
+    reward = reward_covar_adj(arm=arm)
+    reward = Reward(outcome=reward.outcome)
+    return reward
 
 # Vanilla MAD algorithm for 5000 iterations
 mad = MAD(
@@ -56,13 +59,15 @@ mad.fit(cs_precision=0.1, verbose=True, early_stopping=False, mc_adjust=None)
 )
 
 # Covariate adjusted MAD algorithm for 2000 iterations
-mad_covar_adj = MADCovariateAdjusted(
+mad_covar_adj = MAD(
     # bandit=TSNormal(k=2, control=0, reward=reward_covar_adj),
     bandit=UCB(k=2, control=0, reward=reward_covar_adj),
+    alpha=0.05,
+    delta=lambda x: 1./(x**0.24),
+    t_star=int(5e3),
     model=OLSModel,
     pooled=False,
-    n_warmup=50,
-    t_star=int(5e3)
+    n_warmup=50
 )
 mad_covar_adj.fit(
     verbose=True,
@@ -122,10 +127,10 @@ def reward_covar_adj(arm: int) -> Tuple[float, pd.DataFrame]:
     mean = 0.05 + ate + 0.3 * X1 + 0.1 * X2 - 0.2 * X3
     Y_i = generator.binomial(n=1, p=mean)
     X_df = pd.DataFrame({"X_1": [X1], "X_2": [X2], "X_3": [X3]})
-    return float(Y_i), X_df
+    return Reward(outcome=float(Y_i), covariates=X_df)
 
 def reward_vanilla(arm: int) -> float:
-    return reward_covar_adj(arm=arm)[0]
+    return Reward(outcome=reward_covar_adj(arm=arm).outcome)
 
 # Vanilla MAD algorithm for 5000 iterations
 mad = MAD(
@@ -149,13 +154,15 @@ mad.fit(verbose=True, early_stopping=False, mc_adjust=None)
 )
 
 # Covariate adjusted MAD algorithm for 2000 iterations
-mad_covar_adj = MADCovariateAdjusted(
+mad_covar_adj = MAD(
     # bandit=TSBernoulli(k=2, control=0, reward=reward_covar_adj),
     bandit=UCB(k=2, control=0, reward=reward_covar_adj),
+    alpha=0.05,
+    delta=lambda x: 1./(x**0.24),
+    t_star=int(2e3),
     model=LogitModel,
     pooled=False,
-    n_warmup=50,
-    t_star=int(2e3)
+    n_warmup=50
 )
 mad_covar_adj.fit(
     verbose=True,
@@ -175,6 +182,7 @@ mad_covar_adj.fit(
 )
 
 # Plot ITEs
+mad.plot_ites(arm=1, type="histogram", bins=50)
 mad_covar_adj.plot_ites(arm=1, type="histogram", bins=50)
 
 # Compare the two methods
@@ -256,10 +264,10 @@ def reward_covar_adj(arm: int) -> tuple[float, pd.DataFrame]:
         "X5": [X5]
     })
 
-    return float(Y_i), X_df
+    return Reward(outcome=float(Y_i), covariates=X_df)
 
 def reward_vanilla(arm: int) -> float:
-    return reward_covar_adj(arm=arm)[0]
+    return Reward(outcome=reward_covar_adj(arm=arm).outcome)
 
 # Vanilla MAD algorithm for 5000 iterations
 mad = MAD(
@@ -272,15 +280,15 @@ mad = MAD(
 mad.fit(verbose=True, early_stopping=False, mc_adjust=None)
 
 # Covariate adjusted MAD for 5000 iterations
-mad_covar_adj = MADCovariateAdjusted(
+mad_covar_adj = MAD(
     # bandit=TSNormal(k=10, control=0, reward=reward_covar_adj),
     bandit=UCB(k=10, control=0, reward=reward_covar_adj),
-    model=OLSModel,
-    pooled=True,
-    n_warmup=1,
     alpha=0.05,
     delta=lambda x: 1./(x**0.24),
-    t_star=int(10e3)
+    t_star=int(10e3),
+    model=OLSModel,
+    pooled=True,
+    n_warmup=1
 )
 mad_covar_adj.fit(
     verbose=True,
@@ -392,7 +400,7 @@ def reward_fn(arm: int) -> Tuple[float, pd.DataFrame]:
     mean = 0.5 + ate + 0.3 * X1 + 1.0 * X2 - 0.5 * X3
     Y_i = generator.normal(mean, 1)
     X_df = pd.DataFrame({"X_1": [X1], "X_2": [X2], "X_3": [X3]})
-    return float(Y_i), X_df
+    return Reward(outcome=float(Y_i), covariates=X_df)
 
 type1_error_sim = [
     x for x in

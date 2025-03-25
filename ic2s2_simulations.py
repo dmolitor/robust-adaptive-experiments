@@ -7,7 +7,7 @@ import pandas as pd
 import plotnine as pn
 from scipy.stats import t
 
-from src.bandit import TSBernoulli
+from src.bandit import Reward, TSBernoulli
 from src.mad import MAD, MADModified, MADCovariateAdjusted
 from src.utils import last
 
@@ -21,7 +21,7 @@ def reward_fn(arm: int) -> float:
         0: generator.binomial(1, 0.5),  # Control arm
         1: generator.binomial(1, 0.6),  # ATE = 0.1
     }
-    return values[arm]
+    return Reward(outcome=values[arm])
 
 mad = MAD(
     TSBernoulli(k=2, control=0, reward=reward_fn),
@@ -64,7 +64,7 @@ def reward_fn(arm: int) -> float:
         3: generator.binomial(1, 0.8),  # ATE = 0.3
         4: generator.binomial(1, 0.82)  # ATE = 0.32
     }
-    return values[arm]
+    return Reward(outcome=values[arm])
 
 # Algorithm comparison
 # 
@@ -85,7 +85,12 @@ mad_modified = MADModified(
     t_star=int(30e3),
     decay=lambda x: 1./(x**(1./8.))
 )
-mad_modified.fit(cs_precision=0.1, verbose=True, early_stopping=True, mc_adjust=None)
+mad_modified.fit(
+    cs_precision=0.1,
+    verbose=True,
+    early_stopping=True,
+    mc_adjust=None
+)
 
 # Run the vanilla algorithm
 mad_vanilla = MAD(
@@ -464,7 +469,7 @@ def reward_fn(arm: int) -> float:
         8: generator.binomial(1, 0.5),
         9: generator.binomial(1, 0.5)
     }
-    return values[arm]
+    return Reward(outcome=values[arm])
 
 type1_error_sim = [
     x for x in

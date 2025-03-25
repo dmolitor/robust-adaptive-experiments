@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
+import pandas as pd
 from typing import Callable, Dict
 
 class Bandit(ABC):
@@ -51,9 +52,10 @@ class Bandit(ABC):
         """
 
     @abstractmethod
-    def reward(self, arm: int) -> float:
+    def reward(self, arm: int) -> "Reward":
         """
-        Returns the reward for a selected arm.
+        Returns the reward for a selected arm. Returned object must
+        be of class `Reward`.
         
         Parameters:
         -----------
@@ -78,7 +80,7 @@ class AB(Bandit):
         self._control = control
         self._k = k
         self._t = 1
-        self.reward = reward
+        self._reward_fn = reward
     
     def control(self) -> int:
         return self._control
@@ -100,7 +102,11 @@ class AB(Bandit):
         self._k += 1
     
     def reward(self, arm: int) -> float:
-        pass
+        reward: Reward = self._reward_fn(arm)
+        # Assert that the reward is an object of class `Reward`
+        if not isinstance(reward, Reward):
+            raise ValueError("The provided reward function must return `Reward` objects")
+        return reward
 
     def t(self) -> int:
         step = self._t
@@ -169,23 +175,19 @@ class TSNormal(Bandit):
         self._k += 1
 
     def reward(self, arm: int) -> float:
-        outcome = self._reward_fn(arm)
-        if isinstance(outcome, tuple):
-            self._rewards[arm].append(outcome[0])
-        else:
-            self._rewards[arm].append(outcome)
+        reward: Reward = self._reward_fn(arm)
+        # Assert that the reward is an object of class `Reward`
+        if not isinstance(reward, Reward):
+            raise ValueError("The provided reward function must return `Reward` objects")
+        self._rewards[arm].append(reward.outcome)
         var = (5/4)**2
         var_prior = self._params[arm]["var"]
         var_posterior = 1/(1/var_prior + 1/var)
-        if isinstance(outcome, tuple):
-            mean = outcome[0]
-        else:
-            mean = outcome
         mean_prior = self._params[arm]["mean"]
-        mean_posterior = var_posterior*(mean_prior/var_prior + mean/var)
+        mean_posterior = var_posterior*(mean_prior/var_prior + reward.outcome/var)
         self._params[arm]["mean"] = mean_posterior
         self._params[arm]["var"] = var_posterior
-        return outcome
+        return reward
 
     def t(self) -> int:
         step = self._t
@@ -256,14 +258,12 @@ class TSBernoulli(Bandit):
         self._k += 1
     
     def reward(self, arm: int) -> float:
-        outcome = self._reward_fn(arm)
-        if isinstance(outcome, tuple):
-            reward = outcome[0]
-            self._rewards[arm].append(reward)
-        else:
-            reward = outcome
-            self._rewards[arm].append(reward)
-        if reward == 1:
+        reward: Reward = self._reward_fn(arm)
+        # Assert that the reward is an object of class `Reward`
+        if not isinstance(reward, Reward):
+            raise ValueError("The provided reward function must return `Reward` objects")
+        self._rewards[arm].append(reward.outcome)
+        if reward.outcome == 1:
             self._params[arm]["alpha"] += 1
         else:
             self._params[arm]["beta"] += 1
@@ -271,7 +271,7 @@ class TSBernoulli(Bandit):
             self._params[arm]["alpha"]
             /(self._params[arm]["alpha"] + self._params[arm]["beta"])
         )
-        return outcome
+        return reward
 
     def t(self) -> int:
         step = self._t
@@ -354,18 +354,29 @@ class UCB(Bandit):
             self._k += 1
     
     def reward(self, arm: int) -> float:
-        outcome = self._reward_fn(arm)
-        if isinstance(outcome, tuple):
-            reward = outcome[0]
-        else:
-            reward = outcome
-        self._rewards[arm].append(reward)
+        reward: Reward = self._reward_fn(arm)
+        # Assert that the reward is an object of class `Reward`
+        if not isinstance(reward, Reward):
+            raise ValueError("The provided reward function must return `Reward` objects")
+        self._rewards[arm].append(reward.outcome)
         self._counts[arm] += 1
-        self._sums[arm] += reward
+        self._sums[arm] += reward.outcome
         self._means[arm] = self._sums[arm] / self._counts[arm]
-        return outcome
+        return reward
     
     def t(self) -> int:
         step = self._t
         self._t += 1
         return step
+
+class Reward:
+    """
+    A simple class for reward functions. It has two attributes: `self.outcome`
+    and `self.covariates`. Each reward function should return a reward object.
+    For covariate adjusted algorithms, the reward should contain both the
+    outcome as well as the corresponding covariates. For non-covariate adjusted
+    algorithms, only the outcome should be specified.
+    """
+    def __init__(self, outcome: float, covariates: pd.DataFrame | None = None):
+        self.outcome = outcome
+        self.covariates = covariates

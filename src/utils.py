@@ -52,16 +52,6 @@ def cs_radius(
     )
     return rad.astype(float)
 
-def ite(outcome: float, treatment: int, propensity: float) -> float:
-    """
-    Unbiased individual treatment effect estimator
-    """
-    if treatment == 0:
-        ite = -outcome/propensity
-    else:
-        ite = outcome/propensity
-    return ite
-
 def last(x: List[Any]) -> Any:
     """
     Get the last element of a list
@@ -102,13 +92,6 @@ def prep_dummies(
         # col_order = ["const"] + [c for c in covariates.columns if c != "const"]
         # covariates = covariates[col_order]
     return covariates
-
-def var(outcome: float, propensity: float) -> float:
-    """
-    Upper bound for individual treatment effect variance
-    """
-    var_ub = (outcome**2)/(propensity**2)
-    return var_ub
 
 def weighted_probs(bandit_probs: Dict[int, float], weights: Dict[int, float]) -> Dict[int, float]:
     """

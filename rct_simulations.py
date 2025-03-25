@@ -7,7 +7,7 @@ import plotnine as pn
 from tqdm import tqdm
 from typing import List, Tuple
 
-from src.bandit import AB, TSBernoulli, TSNormal, UCB
+from src.bandit import Reward, TSBernoulli, TSNormal, UCB
 from src.mad import MAD, MADModified, MADCovariateAdjusted
 from src.model import LassoModel, OLSModel
 from src.utils import last
@@ -177,11 +177,11 @@ def reward_fn_covar(arm: int) -> Tuple[float, pd.DataFrame]:
     row = sim_data.sample_data(outcome="PA", intervention=interventions[arm])
     outcome = row["PA"].iloc[0]
     covariates = prep_data(row.drop("PA", axis=1))
-    return outcome, covariates
+    return Reward(outcome=outcome, covariates=covariates)
 
 def reward_fn(arm: int) -> float:
-    outcome, covariates = reward_fn_covar(arm)
-    return outcome
+    reward = reward_fn_covar(arm)
+    return Reward(outcome=reward.outcome)
 
 mad = MAD(
     bandit=UCB(
@@ -191,24 +191,25 @@ mad = MAD(
         optimize="min"
     ),
     alpha=0.05,
-    delta=lambda x: 1./(x**(0.24*(1-(1/(x**(1/12)))))),
+    # delta=lambda x: 1./(x**(0.24*(1-(1/(x**(1/12)))))),
+    delta=lambda x: 1./(x**0.2),
     t_star=int(32e3)
 )
 mad.fit(verbose=True, mc_adjust=None)
 
-mad_covar_adj = MADCovariateAdjusted(
+mad_covar_adj = MAD(
     bandit=UCB(
         k=len(interventions),
         control=0,
         reward=reward_fn_covar,
         optimize="min"
     ),
+    alpha=0.05,
+    delta=lambda x: 1./(x**0.2),
+    t_star=int(32e3),
     model=OLSModel,
     pooled=True,
-    n_warmup=100, 
-    alpha=0.05,
-    delta=lambda x: 1./(x**(0.24*(1-(1/(x**(1/12)))))),
-    t_star=int(32e3)
+    n_warmup=100
 )
 mad_covar_adj.fit(verbose=True, mc_adjust=None)
 
