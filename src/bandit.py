@@ -277,3 +277,95 @@ class TSBernoulli(Bandit):
         step = self._t
         self._t += 1
         return step
+
+class UCB(Bandit):
+    """
+    A class for implementing the UCB algorithm.
+    """
+    def __init__(
+        self,
+        k: int,
+        control: int,
+        reward: Callable[[int], float],
+        optimize: str = "max"
+    ):
+        self._active_arms = [x for x in range(k)]
+        self._control = control
+        self._k = k
+        self._optimize = optimize  # "max" for UCB1, "min" for lower confidence bound
+        self._reward_fn = reward
+        self._t = 1
+        # Track counts, cumulative rewards, means, and reward history for each arm.
+        self._counts = {x: 0 for x in range(k)}
+        self._sums = {x: 0.0 for x in range(k)}
+        self._means = {x: 0.0 for x in range(k)}
+        self._rewards = {x: [] for x in range(k)}
+    
+    def calculate_probs(self) -> Dict[int, float]:
+        # If any arm hasn't been pulled yet, assign equal probability among them.
+        zero_count_arms = [arm for arm in self._active_arms if self._counts[arm] == 0]
+        if zero_count_arms:
+            prob = 1.0 / len(zero_count_arms)
+            probs = {
+                arm: prob if arm in zero_count_arms else 0.0
+                for arm in self._active_arms
+            }
+            return probs
+        # Compute UCB (or lower confidence bound for "min" optimization).
+        ucb_values = {}
+        for arm in self._active_arms:
+            avg = self._sums[arm] / self._counts[arm]
+            bonus = np.sqrt((2 * np.log(self._t)) / self._counts[arm])
+            if self._optimize == "max":
+                ucb_values[arm] = avg + bonus
+            elif self._optimize == "min":
+                ucb_values[arm] = avg - bonus
+            else:
+                raise ValueError("`optimize` must be one of: ['max', 'min']")
+        if self._optimize == "max":
+            best_arm = max(ucb_values, key=ucb_values.get)
+        elif self._optimize == "min":
+            best_arm = min(ucb_values, key=ucb_values.get)
+        probs = {
+            arm: 1.0 if arm == best_arm else 0.0
+            for arm in self._active_arms
+        }
+        return probs
+    
+    def control(self) -> int:
+        return self._control
+    
+    def eliminate_arm(self, arm: int) -> None:
+        self._active_arms.remove(arm)
+        self._k -= 1
+    
+    def k(self) -> int:
+        return self._k
+    
+    def probabilities(self) -> Dict[int, float]:
+        assert self.k() == len(self._active_arms), "Mismatch in active arms and k"
+        probs = self.calculate_probs()
+        return probs
+    
+    def reactivate_arm(self, arm: int) -> None:
+        if arm not in self._active_arms:
+            self._active_arms.append(arm)
+            self._active_arms.sort()
+            self._k += 1
+    
+    def reward(self, arm: int) -> float:
+        outcome = self._reward_fn(arm)
+        if isinstance(outcome, tuple):
+            reward = outcome[0]
+        else:
+            reward = outcome
+        self._rewards[arm].append(reward)
+        self._counts[arm] += 1
+        self._sums[arm] += reward
+        self._means[arm] = self._sums[arm] / self._counts[arm]
+        return outcome
+    
+    def t(self) -> int:
+        step = self._t
+        self._t += 1
+        return step

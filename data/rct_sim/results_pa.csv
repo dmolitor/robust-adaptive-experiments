@@ -1,0 +1,28 @@
+term,estimate,std.error,statistic,p.value,conf.low,conf.high,Intervention_Name_Manuscript,type,n
+Contact_Project,-10.525,0.706,-14.904,0,-11.91,-9.141,Positive Contact Video,unweighted,892
+Media_Trust,-10.226,0.676,-15.132,0,-11.55,-8.901,Common Exhausted Majority Identity,unweighted,988
+Common_Identity,-9.194,0.654,-14.064,0,-10.475,-7.912,Common National Identity,unweighted,1069
+Civity_Storytelling,-9.024,0.684,-13.2,0,-10.363,-7.684,Sympathetic Personal Narratives,unweighted,962
+Misperception_Film,-8.175,0.659,-12.414,0,-9.466,-6.884,Correcting Division Misperceptions,unweighted,1051
+Empathy_Beliefs,-6.996,0.705,-9.926,0,-8.377,-5.614,Utility of Outparty Empathy,unweighted,896
+Misperception_Democratic,-6.057,0.651,-9.3,0,-7.333,-4.78,Correcting Democracy Misperceptions,unweighted,1079
+Misperception_Suffering,-6.019,0.665,-9.055,0,-7.322,-4.716,Correcting Opportunism Misperceptions,unweighted,1028
+Learning_Goals,-5.372,0.715,-7.518,0,-6.772,-3.971,Outpartisans' Willingness to Learn,unweighted,868
+Befriending_Meditation,-5.264,0.712,-7.395,0,-6.659,-3.869,Befriending Meditation,unweighted,876
+Outparty_Friendship,-5.239,0.677,-7.739,0,-6.566,-3.912,Describing a Likable Outpartisan,unweighted,984
+Moral_Differences,-5.167,0.67,-7.716,0,-6.48,-3.854,Moral Similarities and Differences,unweighted,1010
+Democratic_Fear,-4.78,0.666,-7.174,0,-6.086,-3.474,Democratic Collapse Threat,unweighted,1022
+Epistemic_Rescue,-4.049,0.674,-6.01,0,-5.37,-2.729,Bipartisan Joint Trivia Quiz,unweighted,995
+Party_Overlap,-3.414,0.658,-5.189,0,-4.704,-2.124,Party Overlap on Policies,unweighted,1053
+Chatbot_Quiz,-3.255,0.665,-4.892,0,-4.56,-1.951,Correcting Policy Misperceptions Chatbot,unweighted,1025
+Misperception_Competition,-2.981,0.65,-4.585,0,-4.255,-1.707,Correcting Oppositional Misperceptions,unweighted,1083
+System_Justification,-2.305,0.648,-3.557,0,-3.575,-1.035,Democratic System Justification,unweighted,1092
+Inparty_Elites,-2.167,0.654,-3.316,0.001,-3.448,-0.886,Pro-Democracy Inparty Elite Cues,unweighted,1070
+Harmful_Experiences,-2.069,0.651,-3.177,0.001,-3.346,-0.793,Outpartisans’ Experiences of Harm,unweighted,1079
+Utah_Cues,-2.007,0.646,-3.105,0.002,-3.273,-0.74,Pro-Democracy Bipartisan Elite Cues,unweighted,1099
+Alternative_Control,-1.789,0.678,-2.638,0.008,-3.117,-0.46,Alternative Control,unweighted,981
+Counterfactual_Selves,-1.758,0.65,-2.705,0.007,-3.032,-0.484,Counterfactual Partisan Selves,unweighted,1084
+Economic_Interests,-1.201,0.67,-1.792,0.073,-2.515,0.112,Common Economic Interests,unweighted,1008
+Violence_Efficacy,-0.921,0.698,-1.319,0.187,-2.29,0.447,Political Violence Inefficacy,unweighted,916
+Partisan_Threat,0.613,0.653,0.94,0.347,-0.666,1.893,Reducing Outparty Electoral Threat,unweighted,1073
+Null_Control,NA,NA,NA,NA,NA,NA,NA,NA,5552

@@ -2,14 +2,15 @@ from .bandit import Bandit
 import numpy as np
 import pandas as pd
 import plotnine as pn
-import statsmodels.api as sm
+from .model import Model
 from tqdm import tqdm
-from typing import Callable, Tuple
+from typing import Any, Callable, Tuple
 from .utils import (
     check_shrinkage_rate,
     cs_radius,
     ite,
     last,
+    prep_dummies,
     var,
     weighted_probs
 )
@@ -50,7 +51,7 @@ class MADBase:
             self._n.append([0])
             self._stat_sig_counter.append(0)
     
-    def _compute_ate(self, arm: int, control: int, t: int, mc_adjust: str = None, print_stuff = False) -> Tuple[float, float]:
+    def _compute_ate(self, arm: int, control: int, t: int, mc_adjust: str = None) -> Tuple[float, float]:
         """
         Compute the ATE and corresponding CS as laid out in Liang and Bojinov
         """
@@ -113,7 +114,8 @@ class MADBase:
         early_stopping: bool = True,
         cs_precision: float = 0.1,
         mc_adjust: str = "Bonferroni",
-        verbose: bool = True
+        verbose: bool = True,
+        **kwargs,
     ) -> None:
         """
         Fit the full MAD algorithm for the full time horizon or until there are
@@ -127,7 +129,8 @@ class MADBase:
             self.pull(
                 early_stopping=early_stopping,
                 cs_precision=cs_precision,
-                mc_adjust=mc_adjust
+                mc_adjust=mc_adjust,
+                **kwargs
             )
             # If all treatment arms have been eliminated, end the algorithm
             if early_stopping and all(
@@ -628,6 +631,18 @@ class MADCovariateAdjusted(MADBase):
         This object must implement several crucial
         methods/attributes. For more details on how to create a custom Bandit
         object, see the documentation of the Bandit class.
+    model : Model
+        This model object must implement several crucial methods. For more
+        details on how to create a custom Model object, see the documentation
+        of the Model class.
+    pooled : bool
+        Flag to select the modeling strategy. When True, a single pooled model
+        is fit to estimate E[Y | X=x, W=w, F] across all treatment arms. When
+        False, separate models are fit for each treatment arm
+        (i.e., E[Y | X=x, W=k, F] for each k in {0, ..., K}).
+    n_warmup : int
+        The number of "warmup" observations to gather before calculating the
+        ATE and CS. Default is 1.
     alpha : float
         The size of the statistical test (testing for non-zero treatment effects)
     delta : Callable[[int], float]
@@ -643,9 +658,12 @@ class MADCovariateAdjusted(MADBase):
     def __init__(
         self,
         bandit: Bandit,
-        alpha: float,
-        delta: Callable[[int], float],
-        t_star: int
+        model: Model,
+        pooled: bool = True,
+        n_warmup: int = 1,
+        alpha: float = 0.05,
+        delta: Callable[[int], float] = lambda x: 1./(x**0.24),
+        t_star: int = int(1e3)
     ):
         super().__init__(
             bandit=bandit,
@@ -654,52 +672,221 @@ class MADCovariateAdjusted(MADBase):
             t_star=t_star
         )
         self._covariates = pd.DataFrame()
+        self._ite = {
+            "control": np.empty(0, dtype=[("ite", "f8"), ("ite_var", "f8"), ("arm", "O")]),
+            "treat": np.empty(0, dtype=[("ite", "f8"), ("ite_var", "f8"), ("arm", "O")])
+        }
+        self._model = model
+        self._n_warmup = n_warmup
+        self._pooled = pooled
     
-    def ite(
+    def compute_ate(
         self,
-        outcome,
+        arm: int,
+        mc_adjust: str = None
+    ) -> Tuple[float, float]:
+        """
+        Compute the ATE and corresponding CS as laid out in Liang and Bojinov
+        """
+        # Get the total number of treatment arms
+        n_treatments = self._bandit.k() - 1
+        # Get all the ITEs and their variance estimates for the current arm
+        # as well as the control arm
+        control_ites = self._ite["control"]
+        treat_ites = self._ite["treat"]
+        ites = np.append(
+            control_ites[control_ites["arm"] == arm]["ite"],
+            treat_ites[treat_ites["arm"] == arm]["ite"]
+        )
+        vars = np.append(
+            control_ites[control_ites["arm"] == arm]["ite_var"],
+            treat_ites[treat_ites["arm"] == arm]["ite_var"]
+        )
+        assert len(ites) == len(vars), "Mismatch in dimensions of ITEs and Variances"
+        # If there aren't enough ITEs to calculate the ATE just mark the ATE
+        # as missing (np.nan) and mark the CS as infinite
+        if len(control_ites) < 1 or len(treat_ites) < 1:
+            avg_treat_effect = np.nan
+            conf_seq_radius = np.inf
+        else:
+            # Calculate the ATE from the ITEs:
+            avg_treat_effect = np.mean(ites)
+            # The Confidence Sequence calculation. Check out `utils.cs_radius()`
+            # for calculation details:
+            conf_seq_radius = cs_radius(
+                var=vars,
+                t=len(ites),
+                t_star=self._t_star,
+                alpha=self._alpha,
+                mc_adjust=mc_adjust,
+                n_arms=n_treatments
+            )
+        return avg_treat_effect, conf_seq_radius
+    
+    def ite_pooled(
+        self,
+        outcome: float,
         covariates: pd.DataFrame,
-        selected_arm,
-        control_arm,
-        propensity
+        selected_arm: Any,
+        control_arm: Any,
+        propensity: float,
+        n_warmup: int
     ) -> float:
         """
         Unbiased individual treatment effect estimator:
         
         TODO: replace the modeling stuff below to accept a user-provided fitting function
         """
-        if not self._covariates.empty:
-            ## TODO: Fix this!!! It will break with more than one arm!!!
-            treat_X = self._covariates[self._covariates["arm"] == 1].drop("arm", axis=1)
-            treat_X = sm.add_constant(treat_X)
-            treat_y = self._rewards[treat_X.index.to_numpy()]
-            control_X = self._covariates[self._covariates["arm"] == control_arm].drop("arm", axis=1)
-            control_X = sm.add_constant(control_X)
-            control_y = self._rewards[control_X.index.to_numpy()]
-        else:
-            treat_X = pd.DataFrame()
-            control_X = pd.DataFrame()
-        # If there isn't enough data to fit, return NaN
-        if (len(treat_X) < 10) or (len(control_X) < 10):
-            return np.nan, np.nan
-        # Add constant term to covariates
-        covariates = sm.add_constant(covariates, has_constant="add")
-        # Fit models on the control and treatment groups
-        treat_model = sm.OLS(treat_y, treat_X).fit()
-        control_model = sm.OLS(control_y, control_X).fit()
-        # Generate predicted counterfactual values
-        pred_treat = treat_model.predict(covariates).iloc[0]
-        pred_control = control_model.predict(covariates).iloc[0]
-        # Calculate AIPW estimate
-        pred_ite = pred_treat - pred_control
-        if selected_arm == control_arm:
-            ite = pred_ite - ((outcome - pred_control)/propensity)
-            ite_var = ((outcome - pred_control)**2)/(propensity**2)
-        else:
-            ite = pred_ite + ((outcome - pred_treat)/propensity)
-            ite_var = ((outcome - pred_treat)**2)/(propensity**2)
-        return ite, ite_var
+        X = self._covariates
+        y = self._rewards
+        assert len(X) == len(y), "Mismatch in dimensions of X and y"
+        # If there isn't enough data to fit, return an empty array
+        if (len(X) < n_warmup):
+            return np.empty(0, dtype = [("ite", "f8"), ("ite_var", "f8"), ("arm", "O")])
+        # Setup data for modeling
+        X = prep_dummies(X, self._bandit._active_arms, add_constant=True)
+        # Train model
+        model = self._model(y=y, X=X)
+        model.fit()
+        # Counterfactual covariates under the control arm
+        covar_control = prep_dummies(
+            covariates,
+            self._bandit._active_arms,
+            add_constant=True,
+            arm=control_arm
+        )
+        pred_control = model.predict(covar_control)[0]
+        estimates = []
+        for arm in self._bandit._active_arms:
+            covar_treat = prep_dummies(
+                covariates,
+                self._bandit._active_arms,
+                add_constant=True,
+                arm=arm
+            )
+            # Generate counterfactual prediction
+            pred_treat = model.predict(covar_treat)[0]
+            # ITE calculation
+            pred_ite = pred_treat - pred_control
+            if selected_arm == control_arm:
+                ite = pred_ite - ((outcome - pred_control)/propensity)
+                ite_var = ((outcome - pred_control)**2)/(propensity**2)
+            elif selected_arm == arm:
+                ite = pred_ite + ((outcome - pred_treat)/propensity)
+                ite_var = ((outcome - pred_treat)**2)/(propensity**2)
+            else:
+                ite = pred_ite
+                ite_var = 0.0
+            # Append to array
+            estimates.append((ite, ite_var, arm))
+        estimates = np.array(
+            estimates,
+            dtype = [("ite", "f8"), ("ite_var", "f8"), ("arm", "O")]
+        )
+        return estimates
+
+    def ite_split(
+        self,
+        outcome: float,
+        covariates: pd.DataFrame,
+        selected_arm: Any,
+        control_arm: Any,
+        propensity: float,
+        n_warmup: int
+    ) -> float:
+        """
+        Unbiased individual treatment effect estimator using separate models for each treatment arm.
+        """
+        X = self._covariates
+        y = self._rewards
+        assert len(X) == len(y), "Mismatch in dimensions of X and y"
+        # Check for sufficient data
+        if len(X) < n_warmup:
+            return np.empty(0, dtype=[("ite", "f8"), ("ite_var", "f8"), ("arm", "O")])
+        # Train control arm model
+        control_X = X[X["arm"] == control_arm].assign(const=1.0).drop("arm", axis=1)
+        control_y = y[control_X.index.to_numpy()]
+        if len(control_X) < 1:
+            return np.empty(0, dtype=[("ite", "f8"), ("ite_var", "f8"), ("arm", "O")])
+        model_control = self._model(y=control_y, X=control_X)
+        model_control.fit()
+        # Set up counterfactual covariates with constant
+        covar_control = covariates.assign(const=1.0)
+        pred_control = model_control.predict(covar_control)[0]
+        # Generate ITE estimates for each arm
+        estimates = []
+        for arm in self._bandit._active_arms:
+            # Train treatment model for the current arm
+            treat_X = X[X["arm"] == arm].assign(const=1.0).drop("arm", axis=1)
+            treat_y = y[treat_X.index.to_numpy()]
+            if len(treat_X) < 1:
+                return np.empty(0, dtype=[("ite", "f8"), ("ite_var", "f8"), ("arm", "O")])
+            model_treat = self._model(y=treat_y, X=treat_X)
+            model_treat.fit()
+            # Generate counterfactual prediction under treatment
+            pred_treat = model_treat.predict(covar_control)[0]
+            pred_ite = pred_treat - pred_control
+            # ITE calculation based on which arm is selected
+            if selected_arm == control_arm:
+                ite = pred_ite - ((outcome - pred_control) / propensity)
+                ite_var = ((outcome - pred_control) ** 2) / (propensity ** 2)
+            elif selected_arm == arm:
+                ite = pred_ite + ((outcome - pred_treat) / propensity)
+                ite_var = ((outcome - pred_treat) ** 2) / (propensity ** 2)
+            else:
+                ite = pred_ite
+                ite_var = 0.0
+            estimates.append((ite, ite_var, arm))
+        estimates = np.array(
+            estimates,
+            dtype=[("ite", "f8"), ("ite_var", "f8"), ("arm", "O")]
+        )
+        return estimates
     
+    def plot_ites(self, arm: Any, type: str = "boxplot", **kwargs) -> pn.ggplot:
+        """
+        Parameters
+        ----------
+
+        arm : Any
+            The label of the arm for which to plot ITE estimates.
+        type : str
+            The type of plot. Must be one of 'boxplot', 'density', or 'histogram'.
+        **kwargs
+            Keyword arguments to pass directly to the `geom_{plot_type}()` call.
+        """
+        ites = pd.concat([
+            pd.DataFrame({
+                "ITE": self._ite["control"][self._ite["control"]["arm"] == arm]["ite"]
+            }).assign(Group="Control"),
+            pd.DataFrame({
+                "ITE": self._ite["treat"][self._ite["treat"]["arm"] == arm]["ite"]
+            }).assign(Group="Treatment")
+        ])
+        if type.lower() == "boxplot":
+            plt = (
+                pn.ggplot(ites, pn.aes(y="ITE"))
+                + pn.geom_boxplot(**kwargs)
+                + pn.theme_538()
+                + pn.facet_wrap("~ Group", scales="free", nrow=1)
+            )
+        elif type.lower() == "density":
+            plt = (
+                pn.ggplot(ites, pn.aes(x="ITE", color="Group"))
+                + pn.geom_density(**kwargs)
+                + pn.theme_538()
+            )
+        elif type.lower() == "histogram":
+            plt = (
+                pn.ggplot(ites, pn.aes(x="ITE"))
+                + pn.geom_histogram(**kwargs)
+                + pn.theme_538()
+                + pn.facet_wrap("~ Group", scales="free", ncol=1)
+            )
+        else:
+            ValueError("Type must be one of ['boxplot', 'density', 'histogram']")
+        return plt
+
     def pull(
         self,
         early_stopping: bool = True, 
@@ -727,85 +914,60 @@ class MADCovariateAdjusted(MADBase):
             The type of multiple comparison correction to apply to the
             constructed CSs. Default is Bonferroni
         """
-        # The index of the control arm of the bandit, typically 0
         control = self._bandit.control()
-        # The number of bandit arms
         k = self._bandit.k()
-        # The CURRENT time step of the bandit
         t = self._bandit.t()
-        # The random exploration mixing rate at time step t; For more details
-        # on this mixing sequence delta_t look at Liang and Bojinov on Page 13
-        # directly above Theorem 1 and in the first new paragraph on Page 11.
         d_t = self._delta(t)
-        # This function just ensures that the mixing rate d_t follows the
-        # requirements stated in the paper. Can't shrink faster than 1/(t^(1/4)).
         check_shrinkage_rate(t, d_t)
-        # Get the arm assignment probabilities from the underlying bandit algo
         arm_probs = self._bandit.probabilities()
-        # For each arm, calculate the MAD probabilities based on the bandit probs.
-        # This equation is Definition 4 in the paper and it's multi-arm corollary
-        # is defined in the third paragraph in Appendix C (Page 34). The
-        # multi-class definition is what I'm using here (just a generalization
-        # of the 2-class case).
         probs = [d_t/k + (1 - d_t)*p for p in arm_probs.values()]
-        # Record these probabilities for plotting later
         for key, value in enumerate(probs):
             self._probs[key].append(value)
-        # Then select the arm as a draw from multinomial with these probabilities
         selected_index = generator.multinomial(1, pvals=probs).argmax()
         selected_arm = list(arm_probs.keys())[selected_index]
-        # This is not essential for the MAD algorithm. I'm simply tracking how
-        # much sample has been assigned to each arm.
         for arm in range(len(self._ate)):
             if arm == selected_arm:
                 self._n[arm].append((last(self._n[arm]) + 1))
             else:
                 self._n[arm].append((last(self._n[arm])))
-        # Propensity score; obviously just the probability of the selected arm
         propensity = probs[selected_index]
-        # True reward resulting from the selected arm
+        # Observe reward (outcome) and corresponding covariates
         reward, covariates = self._bandit.reward(selected_arm)
-        # Calculate the individual treatment effect estimate (ITE). This is effectively
-        # just (reward / propensity). See `utils.ite()` for exactly what it's
-        # doing.
-        # Also calculates the plug-in variance estimate of the ITE. See `utils.ite()`.
-        treat_effect, treat_effect_var = self.ite(
-            outcome=reward,
-            covariates=covariates,
-            selected_arm=selected_arm,
-            control_arm=control,
-            propensity=propensity
-        )
-        # Record the observed reward
+        if self._pooled:
+            ite_est = self.ite_pooled(
+                outcome=reward,
+                covariates=covariates,
+                selected_arm=selected_arm,
+                control_arm=control,
+                propensity=propensity,
+                n_warmup=self._n_warmup
+            )
+        else:
+            ite_est = self.ite_split(
+                outcome=reward,
+                covariates=covariates,
+                selected_arm=selected_arm,
+                control_arm=control,
+                propensity=propensity,
+                n_warmup=self._n_warmup
+            )
         self._rewards = np.append(self._rewards, reward)
-        # Record the observed covariates
         covariates["arm"] = selected_arm
         self._covariates = (
             pd
             .concat([self._covariates, covariates], axis=0)
             .reset_index(drop=True)
         )
-        # Record the ITE and it's variance for calculating the ATE later.
-        # Only record if they are not NaN (aka enough data to actually
-        # calculate an effect).
-        if not np.isnan(treat_effect) and not np.isnan(treat_effect_var):
-            self._ite[selected_arm].append(treat_effect)
-            self._ite_var[selected_arm].append(treat_effect_var)
+        if len(ite_est) > 0:
+            if selected_arm == control:
+                self._ite["control"] = np.append(self._ite["control"], ite_est)
+            else:
+                self._ite["treat"] = np.append(self._ite["treat"], ite_est)
         else:
-            # Record every time we don't calculate an ITE or ITE variance
-            # This affects the denominator of our ATE calculation
             self._t_no_ite += 1
-        # Now, for each arm, calculate its ATE and corresponding Confidence Sequence (CS)
-        # value for the current time step t.
         for arm in arm_probs.keys():
-            # Don't calculate the ATE for the control arm
-            if arm == control:
-                continue
-            # Calculate the ATE and corresponding CS for the current arm
-            avg_treat_effect, conf_seq_radius = self._compute_ate(
+            avg_treat_effect, conf_seq_radius = self.compute_ate(
                 arm=arm,
-                control=control,
-                t=(t - self._t_no_ite), # Make sure the denominator doesn't include N where no ITE was calculated
                 mc_adjust=mc_adjust
             )
             # Record the ATE and CS for the current arm

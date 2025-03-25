@@ -1,0 +1,28 @@
+term,estimate,std.error,statistic,p.value,conf.low,conf.high,Intervention_Name_Manuscript,type,n
+Misperception_Democratic,-5.766,0.719,-8.015,0,-7.176,-4.356,Correcting Democracy Misperceptions,unweighted,1077
+Democratic_Fear,-4.74,0.734,-6.456,0,-6.179,-3.301,Democratic Collapse Threat,unweighted,1026
+Misperception_Film,-2.244,0.729,-3.079,0.002,-3.672,-0.816,Correcting Division Misperceptions,unweighted,1045
+Utah_Cues,-2.174,0.711,-3.055,0.002,-3.568,-0.779,Pro-Democracy Bipartisan Elite Cues,unweighted,1106
+Common_Identity,-1.649,0.721,-2.287,0.022,-3.063,-0.236,Common National Identity,unweighted,1070
+Civity_Storytelling,-1.281,0.754,-1.698,0.09,-2.759,0.198,Sympathetic Personal Narratives,unweighted,963
+Contact_Project,-1.041,0.778,-1.337,0.181,-2.566,0.485,Positive Contact Video,unweighted,895
+Inparty_Elites,-0.886,0.722,-1.228,0.22,-2.301,0.529,Pro-Democracy Inparty Elite Cues,unweighted,1068
+Learning_Goals,-0.61,0.788,-0.773,0.439,-2.155,0.935,Outpartisans' Willingness to Learn,unweighted,869
+Alternative_Control,-0.507,0.749,-0.678,0.498,-1.975,0.96,Alternative Control,unweighted,980
+Befriending_Meditation,-0.406,0.787,-0.516,0.606,-1.948,1.137,Befriending Meditation,unweighted,873
+Violence_Efficacy,-0.382,0.771,-0.496,0.62,-1.893,1.128,Political Violence Inefficacy,unweighted,916
+Harmful_Experiences,0.066,0.718,0.092,0.926,-1.341,1.473,Outpartisans’ Experiences of Harm,unweighted,1083
+Empathy_Beliefs,0.133,0.777,0.171,0.864,-1.39,1.656,Utility of Outparty Empathy,unweighted,898
+Misperception_Competition,0.324,0.718,0.451,0.652,-1.083,1.731,Correcting Oppositional Misperceptions,unweighted,1082
+Epistemic_Rescue,0.325,0.743,0.437,0.662,-1.132,1.781,Bipartisan Joint Trivia Quiz,unweighted,997
+System_Justification,0.445,0.715,0.623,0.534,-0.956,1.846,Democratic System Justification,unweighted,1093
+Moral_Differences,0.594,0.739,0.803,0.422,-0.855,2.042,Moral Similarities and Differences,unweighted,1010
+Chatbot_Quiz,0.663,0.734,0.903,0.367,-0.776,2.101,Correcting Policy Misperceptions Chatbot,unweighted,1027
+Party_Overlap,0.69,0.727,0.95,0.342,-0.734,2.114,Party Overlap on Policies,unweighted,1052
+Counterfactual_Selves,0.922,0.715,1.288,0.198,-0.481,2.324,Counterfactual Partisan Selves,unweighted,1091
+Economic_Interests,1.39,0.74,1.878,0.06,-0.061,2.841,Common Economic Interests,unweighted,1006
+Media_Trust,1.477,0.748,1.975,0.048,0.011,2.942,Common Exhausted Majority Identity,unweighted,982
+Misperception_Suffering,1.621,0.733,2.211,0.027,0.184,3.059,Correcting Opportunism Misperceptions,unweighted,1029
+Partisan_Threat,1.674,0.719,2.328,0.02,0.264,3.083,Reducing Outparty Electoral Threat,unweighted,1078
+Outparty_Friendship,1.838,0.747,2.46,0.014,0.374,3.303,Describing a Likable Outpartisan,unweighted,984
+Null_Control,NA,NA,NA,NA,NA,NA,NA,NA,5556

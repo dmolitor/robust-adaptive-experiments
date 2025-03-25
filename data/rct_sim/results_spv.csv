@@ -1,0 +1,28 @@
+term,estimate,std.error,statistic,p.value,conf.low,conf.high,Intervention_Name_Manuscript,type,n
+Misperception_Film,-2.788,0.638,-4.368,0,-4.039,-1.537,Correcting Division Misperceptions,unweighted,1045
+Utah_Cues,-2,0.625,-3.202,0.001,-3.224,-0.776,Pro-Democracy Bipartisan Elite Cues,unweighted,1100
+Misperception_Democratic,-1.626,0.629,-2.586,0.01,-2.859,-0.394,Correcting Democracy Misperceptions,unweighted,1082
+Inparty_Elites,-1.545,0.633,-2.443,0.015,-2.785,-0.305,Pro-Democracy Inparty Elite Cues,unweighted,1067
+Learning_Goals,-1.488,0.692,-2.151,0.031,-2.843,-0.132,Outpartisans' Willingness to Learn,unweighted,866
+Misperception_Competition,-0.939,0.628,-1.496,0.135,-2.17,0.291,Correcting Oppositional Misperceptions,unweighted,1086
+Contact_Project,-0.829,0.682,-1.215,0.225,-2.166,0.509,Positive Contact Video,unweighted,893
+Partisan_Threat,-0.685,0.63,-1.088,0.277,-1.919,0.549,Reducing Outparty Electoral Threat,unweighted,1079
+Chatbot_Quiz,-0.658,0.643,-1.024,0.306,-1.919,0.602,Correcting Policy Misperceptions Chatbot,unweighted,1026
+Common_Identity,-0.655,0.632,-1.037,0.3,-1.895,0.584,Common National Identity,unweighted,1068
+Befriending_Meditation,-0.497,0.688,-0.723,0.47,-1.846,0.852,Befriending Meditation,unweighted,876
+Harmful_Experiences,-0.372,0.629,-0.591,0.555,-1.605,0.861,Outpartisans’ Experiences of Harm,unweighted,1081
+Counterfactual_Selves,-0.219,0.627,-0.349,0.727,-1.448,1.011,Counterfactual Partisan Selves,unweighted,1089
+Epistemic_Rescue,-0.201,0.65,-0.309,0.757,-1.475,1.073,Bipartisan Joint Trivia Quiz,unweighted,1000
+Economic_Interests,-0.039,0.649,-0.06,0.953,-1.311,1.234,Common Economic Interests,unweighted,1003
+Party_Overlap,0.079,0.637,0.124,0.902,-1.17,1.328,Party Overlap on Policies,unweighted,1049
+Civity_Storytelling,0.177,0.661,0.268,0.789,-1.118,1.472,Sympathetic Personal Narratives,unweighted,963
+Violence_Efficacy,0.271,0.675,0.401,0.688,-1.052,1.593,Political Violence Inefficacy,unweighted,917
+Empathy_Beliefs,0.318,0.681,0.466,0.641,-1.018,1.653,Utility of Outparty Empathy,unweighted,896
+System_Justification,0.339,0.626,0.541,0.589,-0.888,1.566,Democratic System Justification,unweighted,1094
+Moral_Differences,0.414,0.647,0.639,0.523,-0.854,1.682,Moral Similarities and Differences,unweighted,1012
+Media_Trust,0.58,0.655,0.886,0.376,-0.703,1.863,Common Exhausted Majority Identity,unweighted,983
+Alternative_Control,0.7,0.657,1.065,0.287,-0.587,1.986,Alternative Control,unweighted,977
+Misperception_Suffering,0.745,0.643,1.158,0.247,-0.516,2.006,Correcting Opportunism Misperceptions,unweighted,1025
+Outparty_Friendship,1.326,0.656,2.021,0.043,0.04,2.612,Describing a Likable Outpartisan,unweighted,979
+Democratic_Fear,2.26,0.643,3.514,0,0.999,3.521,Democratic Collapse Threat,unweighted,1025
+Null_Control,NA,NA,NA,NA,NA,NA,NA,NA,5556

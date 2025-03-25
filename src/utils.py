@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from typing import Any, Dict, List
 
 def check_shrinkage_rate(t: int, delta_t: float):
@@ -66,6 +67,41 @@ def last(x: List[Any]) -> Any:
     Get the last element of a list
     """
     return x[len(x) - 1]
+
+def prep_dummies(
+    covariates: pd.DataFrame,
+    categories: List,
+    add_constant: bool = True,
+    arm: None | Any = None
+) -> pd.DataFrame:
+    """
+    Prepare covariate data for model training by expanding treatment arm
+    assignment into dummy variables.
+    """
+    if arm is not None:
+        covariates["arm"] = arm
+    covariates["arm"] = pd.Categorical(covariates["arm"], categories=categories)
+    covariates = (
+        pd
+        .concat(
+            [
+                covariates,
+                pd.get_dummies(
+                    covariates["arm"],
+                    prefix="arm",
+                    drop_first=True,
+                    dtype=int
+                )
+            ],
+            axis=1
+        )
+        .drop("arm", axis=1)
+    )
+    if add_constant:
+        covariates["const"] = 1.0
+        # col_order = ["const"] + [c for c in covariates.columns if c != "const"]
+        # covariates = covariates[col_order]
+    return covariates
 
 def var(outcome: float, propensity: float) -> float:
     """

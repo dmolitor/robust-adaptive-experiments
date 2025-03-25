@@ -35,7 +35,7 @@ data <- read_csv(data_fp) |>
 outcomes <- read_csv(out_labels_fp) |> slice(1:3) # only interested in partisan animosity, undemocratic practices, partisan violence 
 plots <- lapply(outcomes |> pull(Outcome_Name_Data), function(out_var){
   # Print outcome 
-  cat("Outcome = ", out_var)
+  cat("Outcome = ", out_var, "\n")
   
   # weight for the outcome 
   weight_var <- outcomes |> filter(Outcome_Name_Data == out_var) |> pull(Weights_Name_Data)
@@ -75,15 +75,16 @@ plots <- lapply(outcomes |> pull(Outcome_Name_Data), function(out_var){
     inner_join(read_csv(treat_labels_fp), by = c("term" = "Intervention_Name_Data")) |>
     mutate(type = "unweighted")
 
-  results <- bind_rows(results_weighted, results_unweighted)
+  results <- bind_rows(results_weighted, results_unweighted) |>
+    full_join(modelDat |> summarize(n = n(), .by = c(Condition)), by = c("term" = "Condition"))
   
   # Plot 
   figure <- ggplot(
-    results,
+    results |> filter(type == "unweighted"),
     aes(
       x = estimate,
       y = reorder(Intervention_Name_Manuscript, desc(estimate)),
-      color = type
+      # color = type
     )
   ) + 
     geom_point(position = position_dodge(width = 0.3)) + 
@@ -94,10 +95,21 @@ plots <- lapply(outcomes |> pull(Outcome_Name_Data), function(out_var){
     geom_vline(xintercept = 0, color = "gray70") +
     labs(x = "Estimate", y = "Intervention", title = paste("Outcome:", outcome_name))
   
-  return(figure)
+  return(list("figure" = figure, "estimates" = results))
 })
 
-
-
+# Output regression estimates for outcome: PA
+write_csv(
+  plots[[1]][["estimates"]] |> filter(type == "unweighted" | is.na(type)),
+  here("data/rct_sim/results_pa.csv")
+)
+write_csv(
+  plots[[2]][["estimates"]] |> filter(type == "unweighted" | is.na(type)),
+  here("data/rct_sim/results_ada.csv")
+)
+write_csv(
+  plots[[3]][["estimates"]] |> filter(type == "unweighted" | is.na(type)),
+  here("data/rct_sim/results_spv.csv")
+)
 
 
